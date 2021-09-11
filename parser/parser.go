@@ -11,63 +11,87 @@ type Node interface {
 	isNode()
 }
 
-type ExprNode interface {
-	isExprNode()
+type Expr interface {
+	isExpr()
 	Node
 }
 
 type BinaryExpr struct {
-	Left  ExprNode
+	Left  Expr
 	Op    lexer.Token
-	Right ExprNode
-	ExprNode
+	Right Expr
+	Expr
 }
 
 type UnaryExpr struct {
 	Op    lexer.Token
-	Right ExprNode
-	ExprNode
+	Right Expr
+	Expr
 }
 
 type NumberExpr struct {
 	Num lexer.Token
-	ExprNode
+	Expr
 }
 
 type GroupingExpr struct {
-	Expr ExprNode
-	ExprNode
+	InnerExpr Expr
+	Expr
 }
 
 type AssignExpr struct {
-	Left  LhsExprNode
-	Right ExprNode
-	ExprNode
+	Left  LhsExpr
+	Right Expr
+	Expr
 }
 
-type LhsExprNode interface {
-	isLhsExprNode()
-	ExprNode
+type LhsExpr interface {
+	isLhs()
+	Expr
 }
 
 type IdExpr struct {
 	Id lexer.Token
-	LhsExprNode
+	LhsExpr
 }
 
-type StatNode interface {
-	isStatNode()
+type Stat interface {
+	isStat()
 	Node
 }
 
-type ExprStatNode struct {
-	Expr ExprNode
-	StatNode
+type ExprStat struct {
+	Expr Expr
+	Stat
 }
 
-type StatListNode struct {
-	Stats []StatNode
-	StatNode
+type StatList struct {
+	Stats []Stat
+	Stat
+}
+
+type Item interface {
+	isItem()
+}
+
+type ItemList struct {
+	Items []Item
+	Node
+}
+
+type PatternAction struct {
+	Pattern Pattern
+	Action  StatList
+	Item
+}
+
+type Pattern interface {
+	isPattern()
+}
+
+type SpecialPattern struct {
+	Type lexer.Token
+	Pattern
 }
 
 type parser struct {
@@ -76,43 +100,90 @@ type parser struct {
 	previous lexer.Token
 }
 
-func GetSyntaxTree(tokens chan lexer.Token) Node {
+func GetSyntaxTree(tokens chan lexer.Token) []Item {
 	ps := parser{
 		tokens: tokens,
 	}
 	ps.advance()
-	return ps.statList()
+	return ps.itemList()
 }
 
-func (ps *parser) statList() StatListNode {
-	stats := make([]StatNode, 0)
+func (ps *parser) itemList() []Item {
+	items := make([]Item, 0)
 	for ps.current.Type != lexer.Eof {
-		stats = append(stats, ps.stat())
-		ps.eatError("expected end of statement", lexer.Eof, lexer.Semicolon, lexer.Newline)
+		items = append(items, ps.item())
+		if !ps.checkTerminator() {
+			ps.parseErrorAtCurrent("expected terminator")
+		}
+		ps.advance()
+		ps.skipNewLines()
 	}
-	return StatListNode{Stats: stats}
+	return items
 }
 
-func (ps *parser) stat() StatNode {
+func (ps *parser) item() Item {
+	pat := ps.pattern()
+	act := ps.block()
+	return PatternAction{Pattern: pat, Action: act}
+}
+
+func (ps *parser) pattern() Pattern {
+	defer ps.advance()
+	switch ps.current.Type {
+	case lexer.Begin:
+		fallthrough
+	case lexer.End:
+		return SpecialPattern{Type: ps.current}
+	default:
+		ps.parseErrorAtCurrent("unexpected token")
+		return nil
+	}
+}
+
+func (ps *parser) block() StatList {
+	ps.eatError("expected '{'", lexer.LeftCurly)
+	ret := ps.statListUntil(lexer.RightCurly)
+	ps.eatError("expected '}'", lexer.RightCurly)
+	return ret
+}
+
+func (ps *parser) statListUntil(types ...lexer.TokenType) StatList {
+	stats := make([]Stat, 0)
+	for ps.current.Type != lexer.Eof {
+		ps.skipNewLines()
+		stats = append(stats, ps.stat())
+		if !ps.checkTerminator() {
+			ps.parseErrorAtCurrent("expected terminator")
+		}
+		ps.advance()
+		ps.skipNewLines()
+		if ps.check(types...) {
+			break
+		}
+	}
+	return StatList{Stats: stats}
+}
+
+func (ps *parser) stat() Stat {
 	switch ps.current.Type {
 	default:
 		return ps.exprStat()
 	}
 }
 
-func (ps *parser) exprStat() StatNode {
+func (ps *parser) exprStat() Stat {
 	expr := ps.expr()
-	return ExprStatNode{Expr: expr}
+	return ExprStat{Expr: expr}
 }
 
-func (ps *parser) expr() ExprNode {
+func (ps *parser) expr() Expr {
 	return ps.assignExpr()
 }
 
-func (ps *parser) assignExpr() ExprNode {
+func (ps *parser) assignExpr() Expr {
 	left := ps.addExpr()
 	if ps.eat(lexer.Assign) {
-		lhs, ok := left.(LhsExprNode)
+		lhs, ok := left.(LhsExpr)
 		if !ok {
 			ps.parseErrorAtCurrent("cannot assign to a non left hand side")
 			return nil
@@ -125,7 +196,7 @@ func (ps *parser) assignExpr() ExprNode {
 	return left
 }
 
-func (ps *parser) addExpr() ExprNode {
+func (ps *parser) addExpr() Expr {
 	left := ps.mulExpr()
 	if ps.eat(lexer.Plus, lexer.Minus) {
 		op := ps.previous
@@ -138,7 +209,7 @@ func (ps *parser) addExpr() ExprNode {
 	return left
 }
 
-func (ps *parser) mulExpr() ExprNode {
+func (ps *parser) mulExpr() Expr {
 	left := ps.expExpr()
 	if ps.eat(lexer.Star, lexer.Slash) {
 		op := ps.previous
@@ -151,7 +222,7 @@ func (ps *parser) mulExpr() ExprNode {
 	return left
 }
 
-func (ps *parser) expExpr() ExprNode {
+func (ps *parser) expExpr() Expr {
 	left := ps.unaryExpr()
 	if ps.eat(lexer.Caret) {
 		op := ps.previous
@@ -164,7 +235,7 @@ func (ps *parser) expExpr() ExprNode {
 	return left
 }
 
-func (ps *parser) unaryExpr() ExprNode {
+func (ps *parser) unaryExpr() Expr {
 	if ps.eat(lexer.Increment, lexer.Decrement, lexer.Plus, lexer.Minus) {
 		op := ps.previous
 		return UnaryExpr{
@@ -175,7 +246,7 @@ func (ps *parser) unaryExpr() ExprNode {
 	return ps.termExpr()
 }
 
-func (ps *parser) termExpr() ExprNode {
+func (ps *parser) termExpr() Expr {
 	defer ps.advance()
 	switch ps.current.Type {
 	case lexer.Number:
@@ -194,7 +265,7 @@ func (ps *parser) termExpr() ExprNode {
 	}
 }
 
-func (ps *parser) groupingExpr() ExprNode {
+func (ps *parser) groupingExpr() Expr {
 	ps.advance()
 	toret := GroupingExpr{
 		Expr: ps.expr(),
@@ -204,7 +275,7 @@ func (ps *parser) groupingExpr() ExprNode {
 }
 
 func (ps *parser) parseErrorAtCurrent(msg string) {
-	fmt.Errorf("%s: at %d: %s\n", os.Args[0], ps.current.Line, msg)
+	fmt.Fprintf(os.Stderr, "%s: at %d (%s): %s\n", os.Args[0], ps.current.Line, ps.current.Lexeme, msg)
 }
 
 func (ps *parser) advance() {
@@ -220,6 +291,10 @@ func (ps *parser) check(types ...lexer.TokenType) bool {
 		}
 	}
 	return false
+}
+
+func (ps *parser) checkTerminator() bool {
+	return ps.check(lexer.Newline, lexer.Eof, lexer.Semicolon)
 }
 
 func (ps *parser) checkError(msg string, types ...lexer.TokenType) bool {
@@ -244,4 +319,10 @@ func (ps *parser) eat(types ...lexer.TokenType) bool {
 		return true
 	}
 	return false
+}
+
+func (ps *parser) skipNewLines() {
+	for ps.check(lexer.Newline) {
+		ps.advance()
+	}
 }

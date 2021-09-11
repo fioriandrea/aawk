@@ -1,8 +1,11 @@
 package runtime
 
 import (
+	"bufio"
 	"fmt"
+	"log"
 	"math"
+	"os"
 	"strconv"
 
 	"github.com/fioriandrea/aawk/lexer"
@@ -24,26 +27,26 @@ type interpreter struct {
 	env environment
 }
 
-func (inter *interpreter) execute(stat parser.StatNode) {
+func (inter *interpreter) execute(stat parser.Stat) {
 	switch v := stat.(type) {
-	case parser.StatListNode:
+	case parser.StatList:
 		inter.executeStatList(v)
-	case parser.ExprStatNode:
+	case parser.ExprStat:
 		inter.executeExprStat(v)
 	}
 }
 
-func (inter *interpreter) executeStatList(sl parser.StatListNode) {
+func (inter *interpreter) executeStatList(sl parser.StatList) {
 	for _, stat := range sl.Stats {
 		inter.execute(stat)
 	}
 }
 
-func (inter *interpreter) executeExprStat(es parser.ExprStatNode) {
+func (inter *interpreter) executeExprStat(es parser.ExprStat) {
 	fmt.Println(inter.eval(es.Expr))
 }
 
-func (inter *interpreter) eval(expr parser.ExprNode) value {
+func (inter *interpreter) eval(expr parser.Expr) value {
 	switch v := expr.(type) {
 	case parser.BinaryExpr:
 		return inter.evalBinary(v)
@@ -112,13 +115,59 @@ func (inter *interpreter) evalId(i parser.IdExpr) value {
 	return v
 }
 
-func Run(syntaxTree parser.Node) {
+func filterItems(items []parser.Item, filterOut func(parser.Item) bool) ([]parser.Item, []parser.Item) {
+	newitems := items[:0]
+	res := make([]parser.Item, 0)
+	for _, item := range items {
+		if filterOut(item) {
+			res = append(res, item)
+		} else {
+			newitems = append(newitems, item)
+		}
+	}
+	return newitems, res
+}
+
+func specialFilter(item parser.Item, ttype lexer.TokenType) bool {
+	patact, ok := item.(parser.PatternAction)
+	if !ok {
+		return false
+	}
+	pat, ok := patact.Pattern.(parser.SpecialPattern)
+	if !ok {
+		return false
+	}
+	if pat.Type.Type != ttype {
+		return false
+	}
+	return true
+}
+
+func Run(items []parser.Item) {
 	var inter interpreter
 	inter.env = environment{}
-	switch v := syntaxTree.(type) {
-	case parser.ExprNode:
-		fmt.Println(inter.eval(v))
-	case parser.StatNode:
-		inter.execute(v)
+	items, begins := filterItems(items, func(item parser.Item) bool {
+		return specialFilter(item, lexer.Begin)
+	})
+	items, ends := filterItems(items, func(item parser.Item) bool {
+		return specialFilter(item, lexer.End)
+	})
+
+	for _, beg := range begins {
+		patact := beg.(parser.PatternAction)
+		inter.execute(patact.Action)
+	}
+
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
+
+	for _, end := range ends {
+		patact := end.(parser.PatternAction)
+		inter.execute(patact.Action)
 	}
 }

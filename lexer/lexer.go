@@ -84,8 +84,8 @@ const (
 )
 
 var keywords = map[string]TokenType{
-	"begin":    Begin,
-	"end":      End,
+	"BEGIN":    Begin,
+	"END":      End,
 	"break":    Break,
 	"continue": Continue,
 	"delete":   Delete,
