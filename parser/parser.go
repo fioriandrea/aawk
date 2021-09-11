@@ -11,32 +11,63 @@ type Node interface {
 	isNode()
 }
 
-type BinaryExpr struct {
-	Left  Node
-	Op    lexer.Token
-	Right Node
+type ExprNode interface {
+	isExprNode()
 	Node
+}
+
+type BinaryExpr struct {
+	Left  ExprNode
+	Op    lexer.Token
+	Right ExprNode
+	ExprNode
 }
 
 type UnaryExpr struct {
 	Op    lexer.Token
-	Right Node
-	Node
+	Right ExprNode
+	ExprNode
 }
 
 type NumberExpr struct {
 	Num lexer.Token
-	Node
+	ExprNode
 }
 
 type GroupingExpr struct {
-	Expr Node
+	Expr ExprNode
+	ExprNode
+}
+
+type AssignExpr struct {
+	Left  LhsExprNode
+	Right ExprNode
+	ExprNode
+}
+
+type LhsExprNode interface {
+	isLhsExprNode()
+	ExprNode
+}
+
+type IdExpr struct {
+	Id lexer.Token
+	LhsExprNode
+}
+
+type StatNode interface {
+	isStatNode()
 	Node
 }
 
-type NodeError struct {
-	msg string
-	Node
+type ExprStatNode struct {
+	Expr ExprNode
+	StatNode
+}
+
+type StatListNode struct {
+	Stats []StatNode
+	StatNode
 }
 
 type parser struct {
@@ -50,14 +81,51 @@ func GetSyntaxTree(tokens chan lexer.Token) Node {
 		tokens: tokens,
 	}
 	ps.advance()
-	return ps.expr()
+	return ps.statList()
 }
 
-func (ps *parser) expr() Node {
-	return ps.addExpr()
+func (ps *parser) statList() StatListNode {
+	stats := make([]StatNode, 0)
+	for ps.current.Type != lexer.Eof {
+		stats = append(stats, ps.stat())
+		ps.eatError("expected end of statement", lexer.Eof, lexer.Semicolon, lexer.Newline)
+	}
+	return StatListNode{Stats: stats}
 }
 
-func (ps *parser) addExpr() Node {
+func (ps *parser) stat() StatNode {
+	switch ps.current.Type {
+	default:
+		return ps.exprStat()
+	}
+}
+
+func (ps *parser) exprStat() StatNode {
+	expr := ps.expr()
+	return ExprStatNode{Expr: expr}
+}
+
+func (ps *parser) expr() ExprNode {
+	return ps.assignExpr()
+}
+
+func (ps *parser) assignExpr() ExprNode {
+	left := ps.addExpr()
+	if ps.eat(lexer.Assign) {
+		lhs, ok := left.(LhsExprNode)
+		if !ok {
+			ps.parseErrorAtCurrent("cannot assign to a non left hand side")
+			return nil
+		}
+		return AssignExpr{
+			Left:  lhs,
+			Right: ps.expr(),
+		}
+	}
+	return left
+}
+
+func (ps *parser) addExpr() ExprNode {
 	left := ps.mulExpr()
 	if ps.eat(lexer.Plus, lexer.Minus) {
 		op := ps.previous
@@ -70,7 +138,7 @@ func (ps *parser) addExpr() Node {
 	return left
 }
 
-func (ps *parser) mulExpr() Node {
+func (ps *parser) mulExpr() ExprNode {
 	left := ps.expExpr()
 	if ps.eat(lexer.Star, lexer.Slash) {
 		op := ps.previous
@@ -83,7 +151,7 @@ func (ps *parser) mulExpr() Node {
 	return left
 }
 
-func (ps *parser) expExpr() Node {
+func (ps *parser) expExpr() ExprNode {
 	left := ps.unaryExpr()
 	if ps.eat(lexer.Caret) {
 		op := ps.previous
@@ -96,7 +164,7 @@ func (ps *parser) expExpr() Node {
 	return left
 }
 
-func (ps *parser) unaryExpr() Node {
+func (ps *parser) unaryExpr() ExprNode {
 	if ps.eat(lexer.Increment, lexer.Decrement, lexer.Plus, lexer.Minus) {
 		op := ps.previous
 		return UnaryExpr{
@@ -107,7 +175,7 @@ func (ps *parser) unaryExpr() Node {
 	return ps.termExpr()
 }
 
-func (ps *parser) termExpr() Node {
+func (ps *parser) termExpr() ExprNode {
 	defer ps.advance()
 	switch ps.current.Type {
 	case lexer.Number:
@@ -116,12 +184,17 @@ func (ps *parser) termExpr() Node {
 		}
 	case lexer.LeftParen:
 		return ps.groupingExpr()
+	case lexer.Identifier:
+		return IdExpr{
+			Id: ps.current,
+		}
 	default:
-		return ps.parseErrorAtCurrent("unexpected token")
+		ps.parseErrorAtCurrent("unexpected token")
+		return nil
 	}
 }
 
-func (ps *parser) groupingExpr() Node {
+func (ps *parser) groupingExpr() ExprNode {
 	ps.advance()
 	toret := GroupingExpr{
 		Expr: ps.expr(),
@@ -130,12 +203,8 @@ func (ps *parser) groupingExpr() Node {
 	return toret
 }
 
-func (ps *parser) parseErrorAtCurrent(msg string) Node {
-	toret := NodeError{
-		msg: fmt.Sprintf("%s: at %d: %s\n", os.Args[0], ps.current.Line, msg),
-	}
-	fmt.Errorf("%s", toret.msg)
-	return toret
+func (ps *parser) parseErrorAtCurrent(msg string) {
+	fmt.Errorf("%s: at %d: %s\n", os.Args[0], ps.current.Line, msg)
 }
 
 func (ps *parser) advance() {
@@ -155,6 +224,14 @@ func (ps *parser) check(types ...lexer.TokenType) bool {
 
 func (ps *parser) checkError(msg string, types ...lexer.TokenType) bool {
 	if !ps.check(types...) {
+		ps.parseErrorAtCurrent(msg)
+		return false
+	}
+	return true
+}
+
+func (ps *parser) eatError(msg string, types ...lexer.TokenType) bool {
+	if !ps.eat(types...) {
 		ps.parseErrorAtCurrent(msg)
 		return false
 	}

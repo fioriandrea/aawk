@@ -9,6 +9,7 @@ import (
 
 	"github.com/fioriandrea/aawk/lexer"
 	"github.com/fioriandrea/aawk/parser"
+	"github.com/fioriandrea/aawk/runtime"
 )
 
 func main() {
@@ -18,12 +19,14 @@ func main() {
 		log.Fatal(err)
 	}
 
-	r := bufio.NewReader(filereader)
-	t := make(chan lexer.Token, 10)
-	go lexer.GetTokens(r, t)
-	b, err := json.MarshalIndent(parser.GetSyntaxTree(t), "", "\t")
+	reader := bufio.NewReader(filereader)
+	tokens := make(chan lexer.Token, 10)
+	go lexer.GetTokens(reader, tokens)
+	tree := parser.GetSyntaxTree(tokens)
+	b, err := json.MarshalIndent(tree, "", "\t")
 	if err != nil {
 		fmt.Println("error:", err)
 	}
 	fmt.Println(string(b))
+	runtime.Run(tree)
 }
