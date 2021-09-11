@@ -2,21 +2,28 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
-	"strings"
+	"log"
+	"os"
 
 	"github.com/fioriandrea/aawk/lexer"
+	"github.com/fioriandrea/aawk/parser"
 )
 
 func main() {
-	text := "if (1.3e-12) { print 1, 2, \"ciao \\\"\"\nwhat if i knew i was in rome?"
-	r := bufio.NewReader(strings.NewReader(text))
-	t := make(chan lexer.Token)
-	go lexer.GetTokens(r, t)
-	for token := range t {
-		fmt.Println(token)
-		if token.Type == lexer.Eof {
-			break
-		}
+	filepath := os.Args[1]
+	filereader, err := os.Open(filepath)
+	if err != nil {
+		log.Fatal(err)
 	}
+
+	r := bufio.NewReader(filereader)
+	t := make(chan lexer.Token, 10)
+	go lexer.GetTokens(r, t)
+	b, err := json.MarshalIndent(parser.GetSyntaxTree(t), "", "\t")
+	if err != nil {
+		fmt.Println("error:", err)
+	}
+	fmt.Println(string(b))
 }
