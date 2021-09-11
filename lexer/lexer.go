@@ -174,11 +174,7 @@ func (l *lexer) next(output chan Token) {
 	}
 	switch {
 	case l.atEnd():
-		toret = Token{
-			Type:   Eof,
-			Lexeme: "EOF",
-			Line:   l.line,
-		}
+		toret = l.makeToken(Eof, "EOF")
 	case l.currentRune == '\n':
 		toret = l.newLine()
 	case l.currentRune == '"':
