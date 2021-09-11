@@ -156,7 +156,7 @@ type lexer struct {
 	reader      io.RuneReader
 }
 
-func GetTokens(reader io.RuneReader, output chan Token) chan Token {
+func GetTokens(reader io.RuneReader, output chan Token) {
 	lex := lexer{
 		line:   1,
 		reader: reader,
