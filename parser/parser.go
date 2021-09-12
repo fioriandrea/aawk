@@ -60,6 +60,12 @@ type IdExpr struct {
 	LhsExpr
 }
 
+type IndexingExpr struct {
+	Id    lexer.Token
+	Index []Expr
+	LhsExpr
+}
+
 type Stat interface {
 	isStat()
 	Node
@@ -71,6 +77,7 @@ type ExprStat struct {
 }
 
 type PrintStat struct {
+	Print lexer.Token
 	Exprs []Expr
 	Stat
 }
@@ -224,11 +231,15 @@ func (ps *parser) exprStat() (Stat, error) {
 
 func (ps *parser) printStat() (Stat, error) {
 	ps.advance()
+	op := ps.previous
 	exprs, err := ps.exprListUntil()
 	if err != nil {
 		return nil, err
 	}
-	return PrintStat{Exprs: exprs}, nil
+	return PrintStat{
+		Print: op,
+		Exprs: exprs,
+	}, nil
 }
 
 func (ps *parser) exprListUntil(types ...lexer.TokenType) ([]Expr, error) {
@@ -429,7 +440,6 @@ func (ps *parser) unaryExpr() (Expr, error) {
 }
 
 func (ps *parser) termExpr() (Expr, error) {
-	defer ps.advance()
 	var sub Expr
 	var err error
 	switch ps.current.Type {
@@ -437,20 +447,30 @@ func (ps *parser) termExpr() (Expr, error) {
 		sub, err = NumberExpr{
 			Num: ps.current,
 		}, nil
+		ps.advance()
 	case lexer.String:
 		sub, err = StringExpr{
 			Str: ps.current,
 		}, nil
+		ps.advance()
 	case lexer.LeftParen:
 		sub, err = ps.groupingExpr()
 	case lexer.Identifier:
-		sub, err = IdExpr{
-			Id: ps.current,
-		}, nil
+		id := ps.current
+		ps.advance()
+		if ps.eat(lexer.LeftSquare) {
+			sub, err = ps.insideIndexing(id)
+		} else {
+			sub, err = IdExpr{
+				Id: id,
+			}, nil
+		}
 	case lexer.Error:
 		sub, err = nil, ps.parseErrorAtCurrent("")
+		ps.advance()
 	default:
 		sub, err = nil, ps.parseErrorAtCurrent("unexpected token")
+		ps.advance()
 	}
 	return sub, err
 }
@@ -464,10 +484,24 @@ func (ps *parser) groupingExpr() (Expr, error) {
 	toret := GroupingExpr{
 		Expr: expr,
 	}
-	if !ps.check(lexer.RightParen) {
+	if !ps.eat(lexer.RightParen) {
 		return nil, ps.parseErrorAtCurrent("expected ')'")
 	}
 	return toret, nil
+}
+
+func (ps *parser) insideIndexing(id lexer.Token) (Expr, error) {
+	exprs, err := ps.exprList()
+	if err != nil {
+		return nil, err
+	}
+	if !ps.eat(lexer.RightSquare) {
+		return nil, ps.parseErrorAtCurrent("expected ']'")
+	}
+	return IndexingExpr{
+		Id:    id,
+		Index: exprs,
+	}, nil
 }
 
 func (ps *parser) parseErrorAtCurrent(msg string) error {

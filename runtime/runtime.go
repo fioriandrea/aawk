@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/fioriandrea/aawk/lexer"
 	"github.com/fioriandrea/aawk/parser"
@@ -28,11 +29,19 @@ type awknumericstring string
 
 func (s awknumericstring) isValue() {}
 
-type awkuninitialized struct {
-	awkvalue
-}
+type awkarray map[string]awkvalue
+
+func (a awkarray) isValue() {}
 
 type environment map[string]awkvalue
+
+func (env environment) get(k string) awkvalue {
+	return env[k]
+}
+
+func (env environment) set(k string, v awkvalue) {
+	env[k] = v
+}
 
 type interpreter struct {
 	env environment
@@ -72,6 +81,10 @@ func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
 		if err != nil {
 			return err
 		}
+		_, isarr := v.(awkarray)
+		if isarr {
+			return inter.runtimeError(ps.Print, "cannot print array")
+		}
 		inter.printValue(v)
 		fmt.Print(sep)
 		sep = " " // TODO: use OFS
@@ -86,7 +99,6 @@ func (inter *interpreter) printValue(v awkvalue) {
 		fmt.Print(vv)
 	case awkstring:
 		fmt.Print(vv)
-	case awkuninitialized:
 	}
 }
 
@@ -108,15 +120,25 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 		val, err = inter.evalAssign(v)
 	case parser.IdExpr:
 		val, err = inter.evalId(v)
+	case parser.IndexingExpr:
+		val, err = inter.evalIndexing(v)
 	}
 	return val, err
 }
 
 func (inter *interpreter) evalBinary(b parser.BinaryExpr) (awkvalue, error) {
 	left, err := inter.eval(b.Left)
+	if err != nil {
+		return nil, err
+	}
 	right, err := inter.eval(b.Right)
 	if err != nil {
 		return nil, err
+	}
+	_, arrl := left.(awkarray)
+	_, arrr := right.(awkarray)
+	if arrl || arrr {
+		return nil, inter.runtimeError(b.Op, "cannot use array in scalar context")
 	}
 	var res awkvalue
 	err = nil
@@ -193,9 +215,6 @@ func (inter *interpreter) compareValues(left, right awkvalue) int {
 	_, nsl := left.(awknumericstring)
 	_, nsr := right.(awknumericstring)
 
-	_, ul := left.(awkuninitialized)
-	_, ur := right.(awkuninitialized)
-
 	_, sl := left.(awkstring)
 	_, sr := right.(awkstring)
 
@@ -203,7 +222,7 @@ func (inter *interpreter) compareValues(left, right awkvalue) int {
 	shall be made numerically if both operands are numeric, if one is
 	numeric and the other has a string value that is a numeric string, or
 	if one is numeric and the other has the uninitialized value. */
-	if sl || sr || (ul && ur) || (nsl && nsr) {
+	if sl || sr || (left == nil && right == nil) || (nsl && nsr) {
 		strl := string(inter.toString(left))
 		strr := string(inter.toString(right))
 		if strl == strr {
@@ -222,6 +241,10 @@ func (inter *interpreter) evalUnary(u parser.UnaryExpr) (awkvalue, error) {
 	if err != nil {
 		return nil, err
 	}
+	_, arr := right.(awkarray)
+	if arr {
+		return nil, inter.runtimeError(u.Op, "cannot use array in scalar context")
+	}
 	var res awknumber
 	switch u.Op.Type {
 	case lexer.Minus:
@@ -238,21 +261,75 @@ func (inter *interpreter) parseNumber(n parser.NumberExpr) awkvalue {
 }
 
 func (inter *interpreter) evalAssign(a parser.AssignExpr) (awkvalue, error) {
-	left := a.Left.(parser.IdExpr)
+	var f func(awkvalue)
+	switch left := a.Left.(type) {
+	case parser.IdExpr:
+		_, isarr := inter.env.get(left.Id.Lexeme).(awkarray)
+		if isarr {
+			return nil, inter.runtimeError(left.Id, "cannot use array in scalar context")
+		}
+		f = func(v awkvalue) {
+			inter.env.set(left.Id.Lexeme, v)
+		}
+	case parser.IndexingExpr:
+		val := inter.env.get(left.Id.Lexeme)
+		if val == nil {
+			inter.env.set(left.Id.Lexeme, awkarray{})
+		}
+		arr, isarr := inter.env.get(left.Id.Lexeme).(awkarray)
+		if !isarr {
+			return nil, inter.runtimeError(left.Id, "cannot index scalar variable")
+		}
+		ind, err := inter.evalIndex(left.Index)
+		if err != nil {
+			return nil, err
+		}
+		f = func(v awkvalue) {
+			arr[string(ind)] = v
+		}
+	}
 	right, err := inter.eval(a.Right)
 	if err != nil {
 		return nil, err
 	}
-	inter.env[left.Id.Lexeme] = right
+	f(right)
 	return right, nil
 }
 
 func (inter *interpreter) evalId(i parser.IdExpr) (awkvalue, error) {
-	v, ok := inter.env[i.Id.Lexeme]
-	if !ok {
-		v = awkuninitialized{}
+	return inter.env.get(i.Id.Lexeme), nil
+}
+
+func (inter *interpreter) evalIndexing(i parser.IndexingExpr) (awkvalue, error) {
+	v := inter.env.get(i.Id.Lexeme)
+	switch vv := v.(type) {
+	case awkarray:
+		index, err := inter.evalIndex(i.Index)
+		if err != nil {
+			return nil, err
+		}
+		return vv[string(index)], nil
+	default:
+		if v != nil {
+			return nil, inter.runtimeError(i.Id, "cannot index a scalar value")
+		}
+		inter.env.set(i.Id.Lexeme, awkarray{})
+		return nil, nil
 	}
-	return v, nil
+}
+
+func (inter *interpreter) evalIndex(ind []parser.Expr) (awkstring, error) {
+	sep := ""
+	var buff strings.Builder
+	for _, expr := range ind {
+		res, err := inter.eval(expr)
+		if err != nil {
+			return awkstring(""), err
+		}
+		fmt.Fprintf(&buff, "%s%s", sep, inter.toString(res))
+		sep = " " // TODO use SUBSEP
+	}
+	return awkstring(buff.String()), nil
 }
 
 func (inter *interpreter) toNumber(v awkvalue) awknumber {
@@ -263,8 +340,6 @@ func (inter *interpreter) toNumber(v awkvalue) awknumber {
 		return awknumber(inter.stringToNumber(string(vv)))
 	case awknumericstring:
 		return awknumber(inter.stringToNumber(string(vv)))
-	case awkuninitialized:
-		return awknumber(0)
 	default:
 		return awknumber(0)
 	}
@@ -278,8 +353,6 @@ func (inter *interpreter) toString(v awkvalue) awkstring {
 		return vv
 	case awknumericstring:
 		return awkstring(vv)
-	case awkuninitialized:
-		return awkstring("")
 	default:
 		return awkstring("")
 	}
