@@ -70,6 +70,11 @@ type ExprStat struct {
 	Stat
 }
 
+type PrintStat struct {
+	Exprs []Expr
+	Stat
+}
+
 type StatList []Stat
 
 func (sl StatList) isStat() {}
@@ -200,6 +205,9 @@ func (ps *parser) statListUntil(types ...lexer.TokenType) (StatList, error) {
 
 func (ps *parser) stat() (Stat, error) {
 	switch ps.current.Type {
+	case lexer.Print:
+		stat, err := ps.printStat()
+		return stat, err
 	default:
 		stat, err := ps.exprStat()
 		return stat, err
@@ -212,6 +220,40 @@ func (ps *parser) exprStat() (Stat, error) {
 		return nil, err
 	}
 	return ExprStat{Expr: expr}, nil
+}
+
+func (ps *parser) printStat() (Stat, error) {
+	ps.advance()
+	exprs, err := ps.exprListUntil()
+	if err != nil {
+		return nil, err
+	}
+	return PrintStat{Exprs: exprs}, nil
+}
+
+func (ps *parser) exprListUntil(types ...lexer.TokenType) ([]Expr, error) {
+	if ps.checkTerminator() || ps.check(types...) {
+		return nil, nil
+	}
+	exprs, err := ps.exprList()
+	return exprs, err
+}
+
+func (ps *parser) exprList() ([]Expr, error) {
+	exprs := make([]Expr, 0)
+	expr, err := ps.expr()
+	if err != nil {
+		return nil, err
+	}
+	exprs = append(exprs, expr)
+	for ps.eat(lexer.Comma) {
+		expr, err := ps.expr()
+		if err != nil {
+			return nil, err
+		}
+		exprs = append(exprs, expr)
+	}
+	return exprs, nil
 }
 
 func (ps *parser) expr() (Expr, error) {
@@ -246,7 +288,7 @@ func (ps *parser) concatExpr() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	for !ps.checkTerminator() && !ps.check(lexer.Assign) {
+	for !ps.checkTerminator() && !ps.check(lexer.Assign, lexer.Comma) {
 		op := lexer.Token{
 			Type:   lexer.Concat,
 			Lexeme: "",

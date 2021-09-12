@@ -24,6 +24,10 @@ type awkstring string
 
 func (s awkstring) isValue() {}
 
+type awkuninitialized struct {
+	awkvalue
+}
+
 type environment map[string]awkvalue
 
 type interpreter struct {
@@ -36,6 +40,8 @@ func (inter *interpreter) execute(stat parser.Stat) {
 		inter.executeStatList(v)
 	case parser.ExprStat:
 		inter.executeExprStat(v)
+	case parser.PrintStat:
+		inter.executePrintStat(v)
 	}
 }
 
@@ -46,7 +52,27 @@ func (inter *interpreter) executeStatList(sl parser.StatList) {
 }
 
 func (inter *interpreter) executeExprStat(es parser.ExprStat) {
-	fmt.Println(inter.eval(es.Expr))
+	inter.eval(es.Expr)
+}
+
+func (inter *interpreter) executePrintStat(ps parser.PrintStat) {
+	sep := ""
+	for _, expr := range ps.Exprs {
+		inter.printValue(inter.eval(expr))
+		fmt.Print(sep)
+		sep = " " // TODO: use OFS
+	}
+	fmt.Println()
+}
+
+func (inter *interpreter) printValue(v awkvalue) {
+	switch vv := v.(type) {
+	case awknumber:
+		fmt.Print(vv)
+	case awkstring:
+		fmt.Print(vv)
+	case awkuninitialized:
+	}
 }
 
 func (inter *interpreter) eval(expr parser.Expr) awkvalue {
@@ -117,7 +143,7 @@ func (inter *interpreter) evalAssign(a parser.AssignExpr) awkvalue {
 func (inter *interpreter) evalId(i parser.IdExpr) awkvalue {
 	v, ok := inter.env[i.Id.Lexeme]
 	if !ok {
-		v = awknumber(0)
+		v = awkuninitialized{}
 	}
 	return v
 }
@@ -128,6 +154,8 @@ func (inter *interpreter) toNumber(v awkvalue) awknumber {
 		return vv
 	case awkstring:
 		return awknumber(inter.stringToNumber(string(vv)))
+	case awkuninitialized:
+		return awknumber(0)
 	default:
 		return awknumber(0)
 	}
@@ -139,6 +167,8 @@ func (inter *interpreter) toString(v awkvalue) awkstring {
 		return awkstring(inter.numberToString(float64(vv)))
 	case awkstring:
 		return vv
+	case awkuninitialized:
+		return awkstring("")
 	default:
 		return awkstring("")
 	}
