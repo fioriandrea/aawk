@@ -262,7 +262,7 @@ func (ps *parser) expr() (Expr, error) {
 }
 
 func (ps *parser) assignExpr() (Expr, error) {
-	left, err := ps.concatExpr()
+	left, err := ps.comparisonExpr()
 	if err != nil {
 		return nil, err
 	}
@@ -283,12 +283,32 @@ func (ps *parser) assignExpr() (Expr, error) {
 	return left, nil
 }
 
+func (ps *parser) comparisonExpr() (Expr, error) {
+	left, err := ps.concatExpr()
+	if err != nil {
+		return nil, err
+	}
+	if ps.eat(lexer.Equal, lexer.NotEqual, lexer.Less, lexer.LessEqual, lexer.Greater, lexer.GreaterEqual) {
+		op := ps.previous
+		right, err := ps.concatExpr()
+		if err != nil {
+			return nil, err
+		}
+		left = BinaryExpr{
+			Left:  left,
+			Op:    op,
+			Right: right,
+		}
+	}
+	return left, nil
+}
+
 func (ps *parser) concatExpr() (Expr, error) {
 	left, err := ps.addExpr()
 	if err != nil {
 		return nil, err
 	}
-	for !ps.checkTerminator() && !ps.check(lexer.Assign, lexer.Comma) {
+	for !ps.checkTerminator() && !ps.check(lexer.Assign, lexer.Comma, lexer.Equal, lexer.NotEqual, lexer.Less, lexer.LessEqual, lexer.Greater, lexer.GreaterEqual) {
 		op := lexer.Token{
 			Type:   lexer.Concat,
 			Lexeme: "",

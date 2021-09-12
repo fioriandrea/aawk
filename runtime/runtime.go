@@ -112,8 +112,67 @@ func (inter *interpreter) evalBinary(b parser.BinaryExpr) awkvalue {
 		res = awknumber(math.Pow(float64(inter.toNumber(left)), float64(inter.toNumber(right))))
 	case lexer.Concat:
 		res = inter.toString(left) + inter.toString(right)
+	case lexer.Equal:
+		c := awknumber(inter.compareValues(left, right))
+		if c == 0 {
+			res = awknumber(1)
+		} else {
+			res = awknumber(0)
+		}
+	case lexer.NotEqual:
+		c := awknumber(inter.compareValues(left, right))
+		if c != 0 {
+			res = awknumber(1)
+		} else {
+			res = awknumber(0)
+		}
+	case lexer.Less:
+		c := awknumber(inter.compareValues(left, right))
+		if c < 0 {
+			res = awknumber(1)
+		} else {
+			res = awknumber(0)
+		}
+	case lexer.LessEqual:
+		c := awknumber(inter.compareValues(left, right))
+		if c <= 0 {
+			res = awknumber(1)
+		} else {
+			res = awknumber(0)
+		}
+	case lexer.Greater:
+		c := awknumber(inter.compareValues(left, right))
+		if c > 0 {
+			res = awknumber(1)
+		} else {
+			res = awknumber(0)
+		}
+	case lexer.GreaterEqual:
+		c := awknumber(inter.compareValues(left, right))
+		if c >= 0 {
+			res = awknumber(1)
+		} else {
+			res = awknumber(0)
+		}
 	}
 	return res
+}
+
+func (inter *interpreter) compareValues(left, right awkvalue) int {
+	_, okl := left.(awknumber)
+	_, okr := right.(awknumber)
+	if okl || okr {
+		return int(inter.toNumber(left)) - int(inter.toNumber(right))
+	}
+	sl := string(inter.toString(left))
+	sr := string(inter.toString(right))
+	if sl == sr {
+		return 0
+	} else if sl < sr {
+		return -1
+	} else {
+		return 1
+	}
 }
 
 func (inter *interpreter) evalUnary(u parser.UnaryExpr) awkvalue {
