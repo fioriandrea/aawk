@@ -24,6 +24,10 @@ type awkstring string
 
 func (s awkstring) isValue() {}
 
+type awknumericstring string
+
+func (s awknumericstring) isValue() {}
+
 type awkuninitialized struct {
 	awkvalue
 }
@@ -108,6 +112,8 @@ func (inter *interpreter) evalBinary(b parser.BinaryExpr) awkvalue {
 		res = inter.toNumber(left) * inter.toNumber(right)
 	case lexer.Slash:
 		res = inter.toNumber(left) / inter.toNumber(right)
+	case lexer.Percent:
+		res = awknumber(math.Mod(float64(inter.toNumber(left)), float64(inter.toNumber(right))))
 	case lexer.Caret:
 		res = awknumber(math.Pow(float64(inter.toNumber(left)), float64(inter.toNumber(right))))
 	case lexer.Concat:
@@ -159,20 +165,31 @@ func (inter *interpreter) evalBinary(b parser.BinaryExpr) awkvalue {
 }
 
 func (inter *interpreter) compareValues(left, right awkvalue) int {
-	_, okl := left.(awknumber)
-	_, okr := right.(awknumber)
-	if okl || okr {
-		return int(inter.toNumber(left)) - int(inter.toNumber(right))
+	_, nsl := left.(awknumericstring)
+	_, nsr := right.(awknumericstring)
+
+	_, ul := left.(awkuninitialized)
+	_, ur := right.(awkuninitialized)
+
+	_, sl := left.(awkstring)
+	_, sr := right.(awkstring)
+
+	/* Comparisons (with the '<', "<=", "!=", "==", '>', and ">=" operators)
+	shall be made numerically if both operands are numeric, if one is
+	numeric and the other has a string value that is a numeric string, or
+	if one is numeric and the other has the uninitialized value. */
+	if sl || sr || (ul && ur) || (nsl && nsr) {
+		strl := string(inter.toString(left))
+		strr := string(inter.toString(right))
+		if strl == strr {
+			return 0
+		} else if strl < strr {
+			return -1
+		} else {
+			return 1
+		}
 	}
-	sl := string(inter.toString(left))
-	sr := string(inter.toString(right))
-	if sl == sr {
-		return 0
-	} else if sl < sr {
-		return -1
-	} else {
-		return 1
-	}
+	return int(inter.toNumber(left)) - int(inter.toNumber(right))
 }
 
 func (inter *interpreter) evalUnary(u parser.UnaryExpr) awkvalue {
@@ -213,6 +230,8 @@ func (inter *interpreter) toNumber(v awkvalue) awknumber {
 		return vv
 	case awkstring:
 		return awknumber(inter.stringToNumber(string(vv)))
+	case awknumericstring:
+		return awknumber(inter.stringToNumber(string(vv)))
 	case awkuninitialized:
 		return awknumber(0)
 	default:
@@ -226,6 +245,8 @@ func (inter *interpreter) toString(v awkvalue) awkstring {
 		return awkstring(inter.numberToString(float64(vv)))
 	case awkstring:
 		return vv
+	case awknumericstring:
+		return awkstring(vv)
 	case awkuninitialized:
 		return awkstring("")
 	default:
@@ -234,7 +255,11 @@ func (inter *interpreter) toString(v awkvalue) awkstring {
 }
 
 func (inter *interpreter) numberToString(n float64) string {
-	return fmt.Sprintf("%.6g", n) // TODO: use CONVFMT
+	if math.Trunc(n) == n {
+		return fmt.Sprintf("%.6g", n) // TODO: use CONVFMT
+	} else {
+		return fmt.Sprintf("%d", int64(n))
+	}
 }
 
 func (inter *interpreter) stringToNumber(s string) float64 {

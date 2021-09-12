@@ -352,7 +352,7 @@ func (ps *parser) mulExpr() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	for ps.eat(lexer.Star, lexer.Slash) {
+	for ps.eat(lexer.Star, lexer.Slash, lexer.Percent) {
 		op := ps.previous
 		right, err := ps.expExpr()
 		if err != nil {
