@@ -38,35 +38,46 @@ type interpreter struct {
 	env environment
 }
 
-func (inter *interpreter) execute(stat parser.Stat) {
+func (inter *interpreter) execute(stat parser.Stat) error {
 	switch v := stat.(type) {
 	case parser.StatList:
-		inter.executeStatList(v)
+		return inter.executeStatList(v)
 	case parser.ExprStat:
-		inter.executeExprStat(v)
+		return inter.executeExprStat(v)
 	case parser.PrintStat:
-		inter.executePrintStat(v)
+		return inter.executePrintStat(v)
 	}
+	return nil
 }
 
-func (inter *interpreter) executeStatList(sl parser.StatList) {
+func (inter *interpreter) executeStatList(sl parser.StatList) error {
 	for _, stat := range sl {
-		inter.execute(stat)
+		err := inter.execute(stat)
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func (inter *interpreter) executeExprStat(es parser.ExprStat) {
-	inter.eval(es.Expr)
+func (inter *interpreter) executeExprStat(es parser.ExprStat) error {
+	_, err := inter.eval(es.Expr)
+	return err
 }
 
-func (inter *interpreter) executePrintStat(ps parser.PrintStat) {
+func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
 	sep := ""
 	for _, expr := range ps.Exprs {
-		inter.printValue(inter.eval(expr))
+		v, err := inter.eval(expr)
+		if err != nil {
+			return err
+		}
+		inter.printValue(v)
 		fmt.Print(sep)
 		sep = " " // TODO: use OFS
 	}
 	fmt.Println()
+	return nil
 }
 
 func (inter *interpreter) printValue(v awkvalue) {
@@ -79,30 +90,36 @@ func (inter *interpreter) printValue(v awkvalue) {
 	}
 }
 
-func (inter *interpreter) eval(expr parser.Expr) awkvalue {
+func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
+	var val awkvalue
+	var err error
 	switch v := expr.(type) {
 	case parser.BinaryExpr:
-		return inter.evalBinary(v)
+		val, err = inter.evalBinary(v)
 	case parser.UnaryExpr:
-		return inter.evalUnary(v)
+		val, err = inter.evalUnary(v)
 	case parser.GroupingExpr:
-		return inter.eval(v.Expr)
+		val, err = inter.eval(v.Expr)
 	case parser.NumberExpr:
-		return inter.parseNumber(v)
+		val = inter.parseNumber(v)
 	case parser.StringExpr:
-		return awkstring(v.Str.Lexeme)
+		val = awkstring(v.Str.Lexeme)
 	case parser.AssignExpr:
-		return inter.evalAssign(v)
+		val, err = inter.evalAssign(v)
 	case parser.IdExpr:
-		return inter.evalId(v)
+		val, err = inter.evalId(v)
 	}
-	return nil
+	return val, err
 }
 
-func (inter *interpreter) evalBinary(b parser.BinaryExpr) awkvalue {
-	left := inter.eval(b.Left)
-	right := inter.eval(b.Right)
+func (inter *interpreter) evalBinary(b parser.BinaryExpr) (awkvalue, error) {
+	left, err := inter.eval(b.Left)
+	right, err := inter.eval(b.Right)
+	if err != nil {
+		return nil, err
+	}
 	var res awkvalue
+	err = nil
 	switch b.Op.Type {
 	case lexer.Plus:
 		res = inter.toNumber(left) + inter.toNumber(right)
@@ -111,8 +128,16 @@ func (inter *interpreter) evalBinary(b parser.BinaryExpr) awkvalue {
 	case lexer.Star:
 		res = inter.toNumber(left) * inter.toNumber(right)
 	case lexer.Slash:
+		if inter.toNumber(right) == 0 {
+			err = inter.runtimeError(b.Op, "attempt to divide by 0")
+			break
+		}
 		res = inter.toNumber(left) / inter.toNumber(right)
 	case lexer.Percent:
+		if inter.toNumber(right) == 0 {
+			err = inter.runtimeError(b.Op, "attempt to divide by 0")
+			break
+		}
 		res = awknumber(math.Mod(float64(inter.toNumber(left)), float64(inter.toNumber(right))))
 	case lexer.Caret:
 		res = awknumber(math.Pow(float64(inter.toNumber(left)), float64(inter.toNumber(right))))
@@ -161,7 +186,7 @@ func (inter *interpreter) evalBinary(b parser.BinaryExpr) awkvalue {
 			res = awknumber(0)
 		}
 	}
-	return res
+	return res, err
 }
 
 func (inter *interpreter) compareValues(left, right awkvalue) int {
@@ -192,16 +217,19 @@ func (inter *interpreter) compareValues(left, right awkvalue) int {
 	return int(inter.toNumber(left)) - int(inter.toNumber(right))
 }
 
-func (inter *interpreter) evalUnary(u parser.UnaryExpr) awkvalue {
-	right := inter.eval(u.Right).(awknumber)
+func (inter *interpreter) evalUnary(u parser.UnaryExpr) (awkvalue, error) {
+	right, err := inter.eval(u.Right)
+	if err != nil {
+		return nil, err
+	}
 	var res awknumber
 	switch u.Op.Type {
 	case lexer.Minus:
-		res = -right
+		res = -inter.toNumber(right)
 	case lexer.Plus:
-		res = right
+		res = inter.toNumber(right)
 	}
-	return res
+	return res, nil
 }
 
 func (inter *interpreter) parseNumber(n parser.NumberExpr) awkvalue {
@@ -209,19 +237,22 @@ func (inter *interpreter) parseNumber(n parser.NumberExpr) awkvalue {
 	return awknumber(v)
 }
 
-func (inter *interpreter) evalAssign(a parser.AssignExpr) awkvalue {
+func (inter *interpreter) evalAssign(a parser.AssignExpr) (awkvalue, error) {
 	left := a.Left.(parser.IdExpr)
-	right := inter.eval(a.Right)
+	right, err := inter.eval(a.Right)
+	if err != nil {
+		return nil, err
+	}
 	inter.env[left.Id.Lexeme] = right
-	return right
+	return right, nil
 }
 
-func (inter *interpreter) evalId(i parser.IdExpr) awkvalue {
+func (inter *interpreter) evalId(i parser.IdExpr) (awkvalue, error) {
 	v, ok := inter.env[i.Id.Lexeme]
 	if !ok {
 		v = awkuninitialized{}
 	}
-	return v
+	return v, nil
 }
 
 func (inter *interpreter) toNumber(v awkvalue) awknumber {
@@ -268,6 +299,10 @@ func (inter *interpreter) stringToNumber(s string) float64 {
 	return f
 }
 
+func (inter *interpreter) runtimeError(tok lexer.Token, msg string) error {
+	return fmt.Errorf("%s: at line %d (%s): %s", os.Args[0], tok.Line, tok.Lexeme, msg)
+}
+
 func filterItems(items []parser.Item, filterOut func(parser.Item) bool) ([]parser.Item, []parser.Item) {
 	newitems := items[:0]
 	res := make([]parser.Item, 0)
@@ -296,7 +331,7 @@ func specialFilter(item parser.Item, ttype lexer.TokenType) bool {
 	return true
 }
 
-func Run(items []parser.Item) {
+func Run(items []parser.Item) error {
 	var inter interpreter
 	inter.env = environment{}
 	items, begins := filterItems(items, func(item parser.Item) bool {
@@ -308,7 +343,10 @@ func Run(items []parser.Item) {
 
 	for _, beg := range begins {
 		patact := beg.(parser.PatternAction)
-		inter.execute(patact.Action)
+		err := inter.execute(patact.Action)
+		if err != nil {
+			return err
+		}
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -321,6 +359,10 @@ func Run(items []parser.Item) {
 
 	for _, end := range ends {
 		patact := end.(parser.PatternAction)
-		inter.execute(patact.Action)
+		err := inter.execute(patact.Action)
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }

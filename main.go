@@ -31,5 +31,9 @@ func main() {
 		fmt.Println("error:", err)
 	}
 	fmt.Println(string(b))
-	runtime.Run(tree)
+	err = runtime.Run(tree)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 }

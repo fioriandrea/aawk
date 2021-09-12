@@ -449,7 +449,7 @@ func (ps *parser) groupingExpr() (Expr, error) {
 }
 
 func (ps *parser) parseErrorAtCurrent(msg string) error {
-	prelude := fmt.Sprintf("%s: at %d", os.Args[0], ps.current.Line)
+	prelude := fmt.Sprintf("%s: at line %d", os.Args[0], ps.current.Line)
 	if ps.current.Type == lexer.Error {
 		if len(msg) > 0 {
 			return fmt.Errorf("%s: %s", prelude, msg)
