@@ -78,6 +78,7 @@ const (
 	String
 	Number
 
+	Concat
 	Error
 
 	TokenCount

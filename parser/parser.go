@@ -34,6 +34,11 @@ type NumberExpr struct {
 	Expr
 }
 
+type StringExpr struct {
+	Str lexer.Token
+	Expr
+}
+
 type GroupingExpr struct {
 	InnerExpr Expr
 	Expr
@@ -215,7 +220,7 @@ func (ps *parser) expr() (Expr, error) {
 }
 
 func (ps *parser) assignExpr() (Expr, error) {
-	left, err := ps.addExpr()
+	left, err := ps.concatExpr()
 	if err != nil {
 		return nil, err
 	}
@@ -236,12 +241,36 @@ func (ps *parser) assignExpr() (Expr, error) {
 	return left, nil
 }
 
+func (ps *parser) concatExpr() (Expr, error) {
+	left, err := ps.addExpr()
+	if err != nil {
+		return nil, err
+	}
+	for !ps.checkTerminator() && !ps.check(lexer.Assign) {
+		op := lexer.Token{
+			Type:   lexer.Concat,
+			Lexeme: "",
+			Line:   ps.current.Line,
+		}
+		right, err := ps.addExpr()
+		if err != nil {
+			return nil, err
+		}
+		left = BinaryExpr{
+			Left:  left,
+			Op:    op,
+			Right: right,
+		}
+	}
+	return left, nil
+}
+
 func (ps *parser) addExpr() (Expr, error) {
 	left, err := ps.mulExpr()
 	if err != nil {
 		return nil, err
 	}
-	if ps.eat(lexer.Plus, lexer.Minus) {
+	for ps.eat(lexer.Plus, lexer.Minus) {
 		op := ps.previous
 		right, err := ps.mulExpr()
 		if err != nil {
@@ -261,7 +290,7 @@ func (ps *parser) mulExpr() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ps.eat(lexer.Star, lexer.Slash) {
+	for ps.eat(lexer.Star, lexer.Slash) {
 		op := ps.previous
 		right, err := ps.expExpr()
 		if err != nil {
@@ -323,6 +352,10 @@ func (ps *parser) termExpr() (Expr, error) {
 	case lexer.Number:
 		sub, err = NumberExpr{
 			Num: ps.current,
+		}, nil
+	case lexer.String:
+		sub, err = StringExpr{
+			Str: ps.current,
 		}, nil
 	case lexer.LeftParen:
 		sub, err = ps.groupingExpr()

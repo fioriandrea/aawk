@@ -12,16 +12,19 @@ import (
 	"github.com/fioriandrea/aawk/parser"
 )
 
-type value interface {
+type awkvalue interface {
 	isValue()
 }
 
-type number struct {
-	n float64
-	value
-}
+type awknumber float64
 
-type environment map[string]value
+func (n awknumber) isValue() {}
+
+type awkstring string
+
+func (s awkstring) isValue() {}
+
+type environment map[string]awkvalue
 
 type interpreter struct {
 	env environment
@@ -46,7 +49,7 @@ func (inter *interpreter) executeExprStat(es parser.ExprStat) {
 	fmt.Println(inter.eval(es.Expr))
 }
 
-func (inter *interpreter) eval(expr parser.Expr) value {
+func (inter *interpreter) eval(expr parser.Expr) awkvalue {
 	switch v := expr.(type) {
 	case parser.BinaryExpr:
 		return inter.evalBinary(v)
@@ -56,6 +59,8 @@ func (inter *interpreter) eval(expr parser.Expr) value {
 		return inter.eval(v.Expr)
 	case parser.NumberExpr:
 		return inter.parseNumber(v)
+	case parser.StringExpr:
+		return awkstring(v.Str.Lexeme)
 	case parser.AssignExpr:
 		return inter.evalAssign(v)
 	case parser.IdExpr:
@@ -64,55 +69,89 @@ func (inter *interpreter) eval(expr parser.Expr) value {
 	return nil
 }
 
-func (inter *interpreter) evalBinary(b parser.BinaryExpr) value {
-	left := inter.eval(b.Left).(number)
-	right := inter.eval(b.Right).(number)
-	res := number{}
+func (inter *interpreter) evalBinary(b parser.BinaryExpr) awkvalue {
+	left := inter.eval(b.Left)
+	right := inter.eval(b.Right)
+	var res awkvalue
 	switch b.Op.Type {
 	case lexer.Plus:
-		res.n = left.n + right.n
+		res = inter.toNumber(left) + inter.toNumber(right)
 	case lexer.Minus:
-		res.n = left.n - right.n
+		res = inter.toNumber(left) - inter.toNumber(right)
 	case lexer.Star:
-		res.n = left.n * right.n
+		res = inter.toNumber(left) * inter.toNumber(right)
 	case lexer.Slash:
-		res.n = left.n / right.n
+		res = inter.toNumber(left) / inter.toNumber(right)
 	case lexer.Caret:
-		res.n = math.Pow(left.n, right.n)
+		res = awknumber(math.Pow(float64(inter.toNumber(left)), float64(inter.toNumber(right))))
+	case lexer.Concat:
+		res = inter.toString(left) + inter.toString(right)
 	}
 	return res
 }
 
-func (inter *interpreter) evalUnary(u parser.UnaryExpr) value {
-	right := inter.eval(u.Right).(number)
-	res := number{}
+func (inter *interpreter) evalUnary(u parser.UnaryExpr) awkvalue {
+	right := inter.eval(u.Right).(awknumber)
+	var res awknumber
 	switch u.Op.Type {
 	case lexer.Minus:
-		res.n = -right.n
+		res = -right
 	case lexer.Plus:
-		res.n = right.n
+		res = right
 	}
 	return res
 }
 
-func (inter *interpreter) parseNumber(n parser.NumberExpr) value {
+func (inter *interpreter) parseNumber(n parser.NumberExpr) awkvalue {
 	v, _ := strconv.ParseFloat(n.Num.Lexeme, 64)
-	return number{n: v}
+	return awknumber(v)
 }
 
-func (inter *interpreter) evalAssign(a parser.AssignExpr) value {
+func (inter *interpreter) evalAssign(a parser.AssignExpr) awkvalue {
 	left := a.Left.(parser.IdExpr)
 	right := inter.eval(a.Right)
 	inter.env[left.Id.Lexeme] = right
 	return right
 }
 
-func (inter *interpreter) evalId(i parser.IdExpr) value {
+func (inter *interpreter) evalId(i parser.IdExpr) awkvalue {
 	v, ok := inter.env[i.Id.Lexeme]
 	if !ok {
-		v = number{n: 0}
+		v = awknumber(0)
 	}
 	return v
+}
+
+func (inter *interpreter) toNumber(v awkvalue) awknumber {
+	switch vv := v.(type) {
+	case awknumber:
+		return vv
+	case awkstring:
+		return awknumber(inter.stringToNumber(string(vv)))
+	default:
+		return awknumber(0)
+	}
+}
+
+func (inter *interpreter) toString(v awkvalue) awkstring {
+	switch vv := v.(type) {
+	case awknumber:
+		return awkstring(inter.numberToString(float64(vv)))
+	case awkstring:
+		return vv
+	default:
+		return awkstring("")
+	}
+}
+
+func (inter *interpreter) numberToString(n float64) string {
+	return fmt.Sprintf("%.6g", n) // TODO: use CONVFMT
+}
+
+func (inter *interpreter) stringToNumber(s string) float64 {
+	var f float64
+	fmt.Sscan(s, &f)
+	return f
 }
 
 func filterItems(items []parser.Item, filterOut func(parser.Item) bool) ([]parser.Item, []parser.Item) {
