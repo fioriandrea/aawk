@@ -33,7 +33,7 @@ func main() {
 	fmt.Println(string(b))
 	err = runtime.Run(tree)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
