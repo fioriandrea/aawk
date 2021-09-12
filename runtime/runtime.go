@@ -37,7 +37,7 @@ func (inter *interpreter) execute(stat parser.Stat) {
 }
 
 func (inter *interpreter) executeStatList(sl parser.StatList) {
-	for _, stat := range sl.Stats {
+	for _, stat := range sl {
 		inter.execute(stat)
 	}
 }

@@ -239,7 +239,7 @@ func (l *lexer) number() Token {
 	if l.currentRune == '.' {
 		l.advanceInside(&lexeme)
 		if !unicode.IsDigit(l.currentRune) {
-			return l.makeErrorToken("expected numbers after '.' in number literal")
+			return l.makeErrorToken(fmt.Sprintf("expected numbers after '.' in number literal after '%s'", lexeme.String()))
 		}
 		for unicode.IsDigit(l.currentRune) {
 			l.advanceInside(&lexeme)
@@ -251,7 +251,7 @@ func (l *lexer) number() Token {
 			l.advanceInside(&lexeme)
 		}
 		if !unicode.IsDigit(l.currentRune) {
-			return l.makeErrorToken("expected exponent in number literal")
+			return l.makeErrorToken(fmt.Sprintf("expected exponent in number literal after '%s'", lexeme.String()))
 		}
 		for unicode.IsDigit(l.currentRune) {
 			l.advanceInside(&lexeme)
@@ -269,7 +269,7 @@ func (l *lexer) punctuation() Token {
 	if t, ok := punctuations[lexeme.String()]; ok {
 		return l.makeTokenFromBuilder(t, lexeme)
 	}
-	return l.makeErrorToken("undefined operator")
+	return l.makeErrorToken(fmt.Sprintf("undefined operator '%s'", lexeme.String()))
 }
 
 func (l *lexer) makeTokenFromBuilder(ttype TokenType, builder strings.Builder) Token {

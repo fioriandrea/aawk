@@ -22,7 +22,10 @@ func main() {
 	reader := bufio.NewReader(filereader)
 	tokens := make(chan lexer.Token, 10)
 	go lexer.GetTokens(reader, tokens)
-	tree := parser.GetSyntaxTree(tokens)
+	tree, err := parser.GetSyntaxTree(tokens)
+	if err != nil {
+		os.Exit(1)
+	}
 	b, err := json.MarshalIndent(tree, "", "\t")
 	if err != nil {
 		fmt.Println("error:", err)
