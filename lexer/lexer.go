@@ -173,6 +173,11 @@ func (l *lexer) next(output chan Token) {
 	for unicode.IsSpace(l.currentRune) && l.currentRune != '\n' {
 		l.advance()
 	}
+	if l.currentRune == '#' {
+		for l.currentRune != '\n' && !l.atEnd() {
+			l.advance()
+		}
+	}
 	switch {
 	case l.atEnd():
 		toret = l.makeToken(Eof, "EOF")
