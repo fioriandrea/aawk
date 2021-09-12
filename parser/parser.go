@@ -266,7 +266,8 @@ func (ps *parser) assignExpr() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ps.eat(lexer.Assign) {
+	if ps.eat(lexer.Assign, lexer.ExpAssign, lexer.ModAssign, lexer.MulAssign, lexer.DivAssign, lexer.PlusAssign, lexer.MinusAssign) {
+		op := ps.previous
 		lhs, ok := left.(LhsExpr)
 		if !ok {
 			return nil, ps.parseErrorAtCurrent("cannot assign to a non left hand side")
@@ -274,6 +275,27 @@ func (ps *parser) assignExpr() (Expr, error) {
 		right, err := ps.expr()
 		if err != nil {
 			return nil, err
+		}
+		switch op.Type {
+		case lexer.ExpAssign:
+			op.Type = lexer.Caret
+		case lexer.ModAssign:
+			op.Type = lexer.Percent
+		case lexer.MulAssign:
+			op.Type = lexer.Star
+		case lexer.DivAssign:
+			op.Type = lexer.Slash
+		case lexer.PlusAssign:
+			op.Type = lexer.Plus
+		case lexer.MinusAssign:
+			op.Type = lexer.Minus
+		}
+		if op.Type != lexer.Assign {
+			right = BinaryExpr{
+				Left:  left,
+				Op:    op,
+				Right: right,
+			}
 		}
 		return AssignExpr{
 			Left:  lhs,
@@ -308,7 +330,7 @@ func (ps *parser) concatExpr() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	for !ps.checkTerminator() && !ps.check(lexer.Assign, lexer.Comma, lexer.Equal, lexer.NotEqual, lexer.Less, lexer.LessEqual, lexer.Greater, lexer.GreaterEqual) {
+	for !ps.checkTerminator() && !ps.check(lexer.Dollar, lexer.Not, lexer.Identifier, lexer.Number, lexer.String, lexer.LeftParen) {
 		op := lexer.Token{
 			Type:   lexer.Concat,
 			Lexeme: "",
