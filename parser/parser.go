@@ -330,7 +330,7 @@ func (ps *parser) concatExpr() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	for !ps.checkTerminator() && !ps.check(lexer.Dollar, lexer.Not, lexer.Identifier, lexer.Number, lexer.String, lexer.LeftParen) {
+	for !ps.checkTerminator() && ps.check(lexer.Dollar, lexer.Not, lexer.Identifier, lexer.Number, lexer.String, lexer.LeftParen) {
 		op := lexer.Token{
 			Type:   lexer.Concat,
 			Lexeme: "",
