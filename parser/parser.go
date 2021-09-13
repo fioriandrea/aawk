@@ -90,6 +90,13 @@ type IfStat struct {
 	Stat
 }
 
+type WhileStat struct {
+	While lexer.Token
+	Cond  Expr
+	Body  Stat
+	Stat
+}
+
 type BlockStat []Stat
 
 func (bs BlockStat) isStat() {}
@@ -220,6 +227,8 @@ func (ps *parser) stat() (Stat, error) {
 		stat, err = ps.printStat()
 	case lexer.If:
 		stat, err = ps.ifStat()
+	case lexer.While:
+		stat, err = ps.whileStat()
 	case lexer.LeftCurly:
 		stat, err = ps.block()
 	default:
@@ -285,6 +294,31 @@ func (ps *parser) ifStat() (IfStat, error) {
 		Cond:     cond,
 		Body:     body,
 		ElseBody: elsebody,
+	}, nil
+}
+
+func (ps *parser) whileStat() (WhileStat, error) {
+	ps.eat(lexer.While)
+	op := ps.previous
+	if !ps.eat(lexer.LeftParen) {
+		return WhileStat{}, ps.parseErrorAtCurrent("missing '(' for while statement condition")
+	}
+	cond, err := ps.expr()
+	if err != nil {
+		return WhileStat{}, err
+	}
+	if !ps.eat(lexer.RightParen) {
+		return WhileStat{}, ps.parseErrorAtCurrent("missing ')' closing while statement condition")
+	}
+	ps.eat(lexer.Newline)
+	body, err := ps.stat()
+	if err != nil {
+		return WhileStat{}, err
+	}
+	return WhileStat{
+		While: op,
+		Cond:  cond,
+		Body:  body,
 	}, nil
 }
 

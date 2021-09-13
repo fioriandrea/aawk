@@ -67,6 +67,8 @@ func (inter *interpreter) execute(stat parser.Stat) error {
 		return inter.executePrintStat(v)
 	case parser.IfStat:
 		return inter.executeIfStat(v)
+	case parser.WhileStat:
+		return inter.executeWhileStat(v)
 	}
 	return nil
 }
@@ -117,6 +119,23 @@ func (inter *interpreter) executeIfStat(ifs parser.IfStat) error {
 		}
 	} else if ifs.ElseBody != nil {
 		err := inter.execute(ifs.ElseBody)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (inter *interpreter) executeWhileStat(ws parser.WhileStat) error {
+	for {
+		cond, err := inter.eval(ws.Cond)
+		if err != nil {
+			return err
+		}
+		if !isTruthy(cond) {
+			break
+		}
+		err = inter.execute(ws.Body)
 		if err != nil {
 			return err
 		}
