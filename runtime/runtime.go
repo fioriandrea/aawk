@@ -360,6 +360,12 @@ func (inter *interpreter) evalUnary(u parser.UnaryExpr) (awkvalue, error) {
 		res = -inter.toNumber(right)
 	case lexer.Plus:
 		res = inter.toNumber(right)
+	case lexer.Not:
+		if isTruthy(right) {
+			res = awknumber(0)
+		} else {
+			res = awknumber(1)
+		}
 	}
 	return res, nil
 }

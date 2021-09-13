@@ -575,7 +575,7 @@ func (ps *parser) mulExpr() (Expr, error) {
 }
 
 func (ps *parser) unaryExpr() (Expr, error) {
-	if ps.eat(lexer.Plus, lexer.Minus) {
+	if ps.eat(lexer.Plus, lexer.Minus, lexer.Not) {
 		op := ps.previous
 		right, err := ps.expExpr()
 		if err != nil {
