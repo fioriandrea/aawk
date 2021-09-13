@@ -169,30 +169,35 @@ func GetTokens(reader io.RuneReader, output chan Token) {
 }
 
 func (l *lexer) next(output chan Token) {
-	var toret Token
-	for unicode.IsSpace(l.currentRune) && l.currentRune != '\n' {
+	switch {
+	case l.atEnd():
+		output <- l.makeToken(Eof, "EOF")
+	case l.currentRune == '\\':
+		potentialErr := l.makeErrorToken("unexpected '\\'")
 		l.advance()
-	}
-	if l.currentRune == '#' {
+		if l.currentRune == '\n' {
+			l.newLine()
+		} else {
+			output <- potentialErr
+		}
+	case l.currentRune == '\n':
+		output <- l.newLine()
+	case unicode.IsSpace(l.currentRune):
+		l.advance()
+	case l.currentRune == '#':
 		for l.currentRune != '\n' && !l.atEnd() {
 			l.advance()
 		}
-	}
-	switch {
-	case l.atEnd():
-		toret = l.makeToken(Eof, "EOF")
-	case l.currentRune == '\n':
-		toret = l.newLine()
+		l.advance()
 	case l.currentRune == '"':
-		toret = l.string()
+		output <- l.string()
 	case unicode.IsLetter(l.currentRune) || l.currentRune == '_':
-		toret = l.identifier()
+		output <- l.identifier()
 	case unicode.IsDigit(l.currentRune):
-		toret = l.number()
+		output <- l.number()
 	default:
-		toret = l.punctuation()
+		output <- l.punctuation()
 	}
-	output <- toret
 }
 
 func (l *lexer) newLine() Token {
