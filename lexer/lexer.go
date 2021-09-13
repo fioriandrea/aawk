@@ -152,9 +152,10 @@ type Token struct {
 }
 
 type lexer struct {
-	line        int
-	currentRune rune
-	reader      io.RuneReader
+	line         int
+	currentRune  rune
+	reader       io.RuneReader
+	previousType TokenType
 }
 
 func GetTokens(reader io.RuneReader, output chan Token) {
@@ -169,6 +170,14 @@ func GetTokens(reader io.RuneReader, output chan Token) {
 }
 
 func (l *lexer) next(output chan Token) {
+	contains := func(s []TokenType, e TokenType) bool {
+		for _, a := range s {
+			if a == e {
+				return true
+			}
+		}
+		return false
+	}
 	switch {
 	case l.atEnd():
 		output <- l.makeToken(Eof, "EOF")
@@ -181,7 +190,11 @@ func (l *lexer) next(output chan Token) {
 			output <- potentialErr
 		}
 	case l.currentRune == '\n':
-		output <- l.newLine()
+		if contains([]TokenType{Comma, LeftCurly, DoubleAnd, DoublePipe, Do, Else}, l.previousType) {
+			l.newLine()
+		} else {
+			output <- l.newLine()
+		}
 	case unicode.IsSpace(l.currentRune):
 		l.advance()
 	case l.currentRune == '#':
@@ -288,6 +301,7 @@ func (l *lexer) makeTokenFromBuilder(ttype TokenType, builder strings.Builder) T
 }
 
 func (l *lexer) makeToken(ttype TokenType, lexeme string) Token {
+	l.previousType = ttype
 	return Token{
 		Type:   ttype,
 		Lexeme: lexeme,
