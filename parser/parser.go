@@ -66,6 +66,20 @@ type IndexingExpr struct {
 	LhsExpr
 }
 
+type IncrementExpr struct {
+	Op  lexer.Token
+	Lhs LhsExpr
+	Expr
+}
+
+type PreIncrementExpr struct {
+	IncrementExpr
+}
+
+type PostIncrementExpr struct {
+	IncrementExpr
+}
+
 type Stat interface {
 	isStat()
 	Node
@@ -461,13 +475,13 @@ func (ps *parser) addExpr() (Expr, error) {
 }
 
 func (ps *parser) mulExpr() (Expr, error) {
-	left, err := ps.expExpr()
+	left, err := ps.unaryExpr()
 	if err != nil {
 		return nil, err
 	}
 	for ps.eat(lexer.Star, lexer.Slash, lexer.Percent) {
 		op := ps.previous
-		right, err := ps.expExpr()
+		right, err := ps.unaryExpr()
 		if err != nil {
 			return nil, err
 		}
@@ -480,8 +494,27 @@ func (ps *parser) mulExpr() (Expr, error) {
 	return left, nil
 }
 
+func (ps *parser) unaryExpr() (Expr, error) {
+	if ps.eat(lexer.Plus, lexer.Minus) {
+		op := ps.previous
+		right, err := ps.expExpr()
+		if err != nil {
+			return nil, err
+		}
+		return UnaryExpr{
+			Op:    op,
+			Right: right,
+		}, nil
+	}
+	sub, err := ps.expExpr()
+	if err != nil {
+		return nil, err
+	}
+	return sub, nil
+}
+
 func (ps *parser) expExpr() (Expr, error) {
-	left, err := ps.unaryExpr()
+	left, err := ps.preIncrementExpr()
 	if err != nil {
 		return nil, err
 	}
@@ -500,23 +533,47 @@ func (ps *parser) expExpr() (Expr, error) {
 	return left, nil
 }
 
-func (ps *parser) unaryExpr() (Expr, error) {
-	if ps.eat(lexer.Increment, lexer.Decrement, lexer.Plus, lexer.Minus) {
+func (ps *parser) preIncrementExpr() (Expr, error) {
+	if ps.eat(lexer.Increment, lexer.Decrement) {
 		op := ps.previous
-		right, err := ps.termExpr()
+		expr, err := ps.expr()
 		if err != nil {
 			return nil, err
 		}
-		return UnaryExpr{
-			Op:    op,
-			Right: right,
+		lhs, islhs := expr.(LhsExpr)
+		if !islhs {
+			return nil, ps.parseErrorAt(op, "cannot use pre-increment or pre-decrement operator on non lvalue")
+		}
+		return PreIncrementExpr{
+			IncrementExpr{
+				Op:  op,
+				Lhs: lhs,
+			},
 		}, nil
 	}
-	sub, err := ps.termExpr()
+	res, err := ps.postIncrementExpr()
+	return res, err
+}
+
+func (ps *parser) postIncrementExpr() (Expr, error) {
+	expr, err := ps.termExpr()
 	if err != nil {
 		return nil, err
 	}
-	return sub, nil
+	if ps.eat(lexer.Increment, lexer.Decrement) {
+		op := ps.previous
+		lhs, islhs := expr.(LhsExpr)
+		if !islhs {
+			return nil, ps.parseErrorAt(op, "cannot use post-increment or post-decrement operator on non lvalue")
+		}
+		return PostIncrementExpr{
+			IncrementExpr{
+				Op:  op,
+				Lhs: lhs,
+			},
+		}, nil
+	}
+	return expr, nil
 }
 
 func (ps *parser) termExpr() (Expr, error) {
@@ -584,15 +641,19 @@ func (ps *parser) insideIndexing(id lexer.Token) (Expr, error) {
 	}, nil
 }
 
-func (ps *parser) parseErrorAtCurrent(msg string) error {
-	prelude := fmt.Sprintf("%s: at line %d", os.Args[0], ps.current.Line)
+func (ps *parser) parseErrorAt(tok lexer.Token, msg string) error {
+	prelude := fmt.Sprintf("%s: at line %d", os.Args[0], tok.Line)
 	if ps.current.Type == lexer.Error {
 		if len(msg) > 0 {
 			return fmt.Errorf("%s: %s", prelude, msg)
 		}
-		return fmt.Errorf("%s: %s", prelude, ps.current.Lexeme)
+		return fmt.Errorf("%s: %s", prelude, tok.Lexeme)
 	}
-	return fmt.Errorf("%s (%s): %s", prelude, ps.current.Lexeme, msg)
+	return fmt.Errorf("%s (%s): %s", prelude, tok.Lexeme, msg)
+}
+
+func (ps *parser) parseErrorAtCurrent(msg string) error {
+	return ps.parseErrorAt(ps.current, msg)
 }
 
 func (ps *parser) advance() {

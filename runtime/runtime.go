@@ -172,6 +172,10 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 		val, err = inter.evalId(v)
 	case parser.IndexingExpr:
 		val, err = inter.evalIndexing(v)
+	case parser.PreIncrementExpr:
+		val, err = inter.evalPreIncrement(v)
+	case parser.PostIncrementExpr:
+		val, err = inter.evalPostIncrement(v)
 	}
 	return val, err
 }
@@ -311,8 +315,53 @@ func (inter *interpreter) parseNumber(n parser.NumberExpr) awkvalue {
 }
 
 func (inter *interpreter) evalAssign(a parser.AssignExpr) (awkvalue, error) {
+	right, err := inter.eval(a.Right)
+	if err != nil {
+		return nil, err
+	}
+	res, err := inter.evalAssignToLhs(a.Left, right)
+	return res, err
+}
+
+func (inter *interpreter) evalPreIncrement(pr parser.PreIncrementExpr) (awkvalue, error) {
+	_, ival, err := inter.evalIncrement(pr.IncrementExpr)
+	if err != nil {
+		return nil, err
+	}
+	return ival, nil
+}
+
+func (inter *interpreter) evalPostIncrement(po parser.PostIncrementExpr) (awkvalue, error) {
+	val, _, err := inter.evalIncrement(po.IncrementExpr)
+	if err != nil {
+		return nil, err
+	}
+	return val, nil
+}
+
+func (inter *interpreter) evalIncrement(inc parser.IncrementExpr) (awkvalue, awkvalue, error) {
+	varval, err := inter.eval(inc.Lhs)
+	if err != nil {
+		return nil, nil, err
+	}
+	val := inter.toNumber(varval)
+	var ival awkvalue
+	switch inc.Op.Type {
+	case lexer.Increment:
+		ival = val + 1
+	case lexer.Decrement:
+		ival = val - 1
+	}
+	_, err = inter.evalAssignToLhs(inc.Lhs, ival)
+	if err != nil {
+		return nil, nil, err
+	}
+	return val, ival, nil
+}
+
+func (inter *interpreter) evalAssignToLhs(lhs parser.LhsExpr, val awkvalue) (awkvalue, error) {
 	var f func(awkvalue)
-	switch left := a.Left.(type) {
+	switch left := lhs.(type) {
 	case parser.IdExpr:
 		_, isarr := inter.env.get(left.Id.Lexeme).(awkarray)
 		if isarr {
@@ -338,12 +387,8 @@ func (inter *interpreter) evalAssign(a parser.AssignExpr) (awkvalue, error) {
 			arr[ind.String()] = v
 		}
 	}
-	right, err := inter.eval(a.Right)
-	if err != nil {
-		return nil, err
-	}
-	f(right)
-	return right, nil
+	f(val)
+	return val, nil
 }
 
 func (inter *interpreter) evalId(i parser.IdExpr) (awkvalue, error) {
