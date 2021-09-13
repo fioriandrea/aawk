@@ -21,13 +21,23 @@ type awknumber float64
 
 func (n awknumber) isValue() {}
 
-type awkstring string
+type awkstring interface {
+	isAwkString()
+	fmt.Stringer
+	awkvalue
+}
 
-func (s awkstring) isValue() {}
+type awknormalstring string
+
+func (s awknormalstring) isValue()       {}
+func (s awknormalstring) isAwkString()   {}
+func (s awknormalstring) String() string { return string(s) }
 
 type awknumericstring string
 
-func (s awknumericstring) isValue() {}
+func (s awknumericstring) isValue()       {}
+func (s awknumericstring) isAwkString()   {}
+func (s awknumericstring) String() string { return string(s) }
 
 type awkarray map[string]awkvalue
 
@@ -49,8 +59,8 @@ type interpreter struct {
 
 func (inter *interpreter) execute(stat parser.Stat) error {
 	switch v := stat.(type) {
-	case parser.StatList:
-		return inter.executeStatList(v)
+	case parser.BlockStat:
+		return inter.executeBlockStat(v)
 	case parser.ExprStat:
 		return inter.executeExprStat(v)
 	case parser.PrintStat:
@@ -59,8 +69,8 @@ func (inter *interpreter) execute(stat parser.Stat) error {
 	return nil
 }
 
-func (inter *interpreter) executeStatList(sl parser.StatList) error {
-	for _, stat := range sl {
+func (inter *interpreter) executeBlockStat(bs parser.BlockStat) error {
+	for _, stat := range bs {
 		err := inter.execute(stat)
 		if err != nil {
 			return err
@@ -85,8 +95,8 @@ func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
 		if isarr {
 			return inter.runtimeError(ps.Print, "cannot print array")
 		}
-		inter.printValue(v)
 		fmt.Print(sep)
+		inter.printValue(v)
 		sep = " " // TODO: use OFS
 	}
 	fmt.Println()
@@ -115,7 +125,7 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 	case parser.NumberExpr:
 		val = inter.parseNumber(v)
 	case parser.StringExpr:
-		val = awkstring(v.Str.Lexeme)
+		val = awknormalstring(v.Str.Lexeme)
 	case parser.AssignExpr:
 		val, err = inter.evalAssign(v)
 	case parser.IdExpr:
@@ -164,7 +174,7 @@ func (inter *interpreter) evalBinary(b parser.BinaryExpr) (awkvalue, error) {
 	case lexer.Caret:
 		res = awknumber(math.Pow(float64(inter.toNumber(left)), float64(inter.toNumber(right))))
 	case lexer.Concat:
-		res = inter.toString(left) + inter.toString(right)
+		res = awknormalstring(inter.toString(left).String() + inter.toString(right).String())
 	case lexer.Equal:
 		c := awknumber(inter.compareValues(left, right))
 		if c == 0 {
@@ -223,8 +233,8 @@ func (inter *interpreter) compareValues(left, right awkvalue) int {
 	numeric and the other has a string value that is a numeric string, or
 	if one is numeric and the other has the uninitialized value. */
 	if sl || sr || (left == nil && right == nil) || (nsl && nsr) {
-		strl := string(inter.toString(left))
-		strr := string(inter.toString(right))
+		strl := inter.toString(left).String()
+		strr := inter.toString(right).String()
 		if strl == strr {
 			return 0
 		} else if strl < strr {
@@ -285,7 +295,7 @@ func (inter *interpreter) evalAssign(a parser.AssignExpr) (awkvalue, error) {
 			return nil, err
 		}
 		f = func(v awkvalue) {
-			arr[string(ind)] = v
+			arr[ind.String()] = v
 		}
 	}
 	right, err := inter.eval(a.Right)
@@ -308,7 +318,7 @@ func (inter *interpreter) evalIndexing(i parser.IndexingExpr) (awkvalue, error) 
 		if err != nil {
 			return nil, err
 		}
-		return vv[string(index)], nil
+		return vv[index.String()], nil
 	default:
 		if v != nil {
 			return nil, inter.runtimeError(i.Id, "cannot index a scalar value")
@@ -324,12 +334,12 @@ func (inter *interpreter) evalIndex(ind []parser.Expr) (awkstring, error) {
 	for _, expr := range ind {
 		res, err := inter.eval(expr)
 		if err != nil {
-			return awkstring(""), err
+			return awknormalstring(""), err
 		}
 		fmt.Fprintf(&buff, "%s%s", sep, inter.toString(res))
 		sep = " " // TODO use SUBSEP
 	}
-	return awkstring(buff.String()), nil
+	return awknormalstring(buff.String()), nil
 }
 
 func (inter *interpreter) toNumber(v awkvalue) awknumber {
@@ -337,9 +347,7 @@ func (inter *interpreter) toNumber(v awkvalue) awknumber {
 	case awknumber:
 		return vv
 	case awkstring:
-		return awknumber(inter.stringToNumber(string(vv)))
-	case awknumericstring:
-		return awknumber(inter.stringToNumber(string(vv)))
+		return awknumber(inter.stringToNumber(vv.String()))
 	default:
 		return awknumber(0)
 	}
@@ -348,13 +356,11 @@ func (inter *interpreter) toNumber(v awkvalue) awknumber {
 func (inter *interpreter) toString(v awkvalue) awkstring {
 	switch vv := v.(type) {
 	case awknumber:
-		return awkstring(inter.numberToString(float64(vv)))
+		return awknormalstring(inter.numberToString(float64(vv)))
 	case awkstring:
 		return vv
-	case awknumericstring:
-		return awkstring(vv)
 	default:
-		return awkstring("")
+		return awknormalstring("")
 	}
 }
 
@@ -374,6 +380,17 @@ func (inter *interpreter) stringToNumber(s string) float64 {
 
 func (inter *interpreter) runtimeError(tok lexer.Token, msg string) error {
 	return fmt.Errorf("%s: at line %d (%s): %s", os.Args[0], tok.Line, tok.Lexeme, msg)
+}
+
+func isTruthy(val awkvalue) bool {
+	switch v := val.(type) {
+	case awkstring:
+		return v.String() != ""
+	case awknumber:
+		return v != 0
+	default:
+		return false
+	}
 }
 
 func filterItems(items []parser.Item, filterOut func(parser.Item) bool) ([]parser.Item, []parser.Item) {

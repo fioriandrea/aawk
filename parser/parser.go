@@ -82,10 +82,10 @@ type PrintStat struct {
 	Stat
 }
 
-type StatList []Stat
+type BlockStat []Stat
 
-func (sl StatList) isStat() {}
-func (sl StatList) isNode() {}
+func (bs BlockStat) isStat() {}
+func (bs BlockStat) isNode() {}
 
 type Item interface {
 	isItem()
@@ -98,7 +98,7 @@ type ItemList struct {
 
 type PatternAction struct {
 	Pattern Pattern
-	Action  StatList
+	Action  BlockStat
 	Item
 }
 
@@ -170,7 +170,7 @@ func (ps *parser) pattern() (Pattern, error) {
 	}
 }
 
-func (ps *parser) block() (StatList, error) {
+func (ps *parser) block() (BlockStat, error) {
 	if !ps.eat(lexer.LeftCurly) {
 		return nil, ps.parseErrorAtCurrent("expected '{'")
 	}
@@ -184,7 +184,7 @@ func (ps *parser) block() (StatList, error) {
 	return ret, nil
 }
 
-func (ps *parser) statListUntil(types ...lexer.TokenType) (StatList, error) {
+func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, error) {
 	stats := make([]Stat, 0)
 	var errtoret error = nil
 	for ps.current.Type != lexer.Eof {
@@ -207,7 +207,7 @@ func (ps *parser) statListUntil(types ...lexer.TokenType) (StatList, error) {
 			break
 		}
 	}
-	return StatList(stats), errtoret
+	return stats, errtoret
 }
 
 func (ps *parser) stat() (Stat, error) {
@@ -221,20 +221,20 @@ func (ps *parser) stat() (Stat, error) {
 	}
 }
 
-func (ps *parser) exprStat() (Stat, error) {
+func (ps *parser) exprStat() (ExprStat, error) {
 	expr, err := ps.expr()
 	if err != nil {
-		return nil, err
+		return ExprStat{}, err
 	}
 	return ExprStat{Expr: expr}, nil
 }
 
-func (ps *parser) printStat() (Stat, error) {
+func (ps *parser) printStat() (PrintStat, error) {
 	ps.advance()
 	op := ps.previous
 	exprs, err := ps.exprListUntil()
 	if err != nil {
-		return nil, err
+		return PrintStat{}, err
 	}
 	return PrintStat{
 		Print: op,

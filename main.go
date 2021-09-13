@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -26,11 +25,11 @@ func main() {
 	if err != nil {
 		os.Exit(1)
 	}
-	b, err := json.MarshalIndent(tree, "", "\t")
+	/*b, err := json.MarshalIndent(tree, "", "\t")
 	if err != nil {
 		fmt.Println("error:", err)
 	}
-	fmt.Println(string(b))
+	fmt.Println(string(b))*/
 	err = runtime.Run(tree)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
