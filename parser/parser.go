@@ -80,6 +80,13 @@ type PostIncrementExpr struct {
 	IncrementExpr
 }
 
+type TernaryExpr struct {
+	Cond  Expr
+	Expr0 Expr
+	Expr1 Expr
+	Expr
+}
+
 type Stat interface {
 	isStat()
 	Node
@@ -367,7 +374,7 @@ func (ps *parser) expr() (Expr, error) {
 }
 
 func (ps *parser) assignExpr() (Expr, error) {
-	left, err := ps.comparisonExpr()
+	left, err := ps.ternaryExpr()
 	if err != nil {
 		return nil, err
 	}
@@ -408,6 +415,32 @@ func (ps *parser) assignExpr() (Expr, error) {
 		}, nil
 	}
 	return left, nil
+}
+
+func (ps *parser) ternaryExpr() (Expr, error) {
+	cond, err := ps.comparisonExpr()
+	if err != nil {
+		return nil, err
+	}
+	if ps.eat(lexer.QuestionMark) {
+		expr0, err := ps.expr()
+		if err != nil {
+			return nil, err
+		}
+		if !ps.eat(lexer.Colon) {
+			return nil, ps.parseErrorAtCurrent("expected ':' for ternary operator")
+		}
+		expr1, err := ps.expr()
+		if err != nil {
+			return nil, err
+		}
+		return TernaryExpr{
+			Cond:  cond,
+			Expr0: expr0,
+			Expr1: expr1,
+		}, nil
+	}
+	return cond, nil
 }
 
 func (ps *parser) comparisonExpr() (Expr, error) {

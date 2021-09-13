@@ -177,6 +177,8 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 		val, err = inter.evalPreIncrement(v)
 	case parser.PostIncrementExpr:
 		val, err = inter.evalPostIncrement(v)
+	case parser.TernaryExpr:
+		val, err = inter.evalTernary(v)
 	}
 	return val, err
 }
@@ -390,6 +392,21 @@ func (inter *interpreter) evalAssignToLhs(lhs parser.LhsExpr, val awkvalue) (awk
 	}
 	f(val)
 	return val, nil
+}
+
+func (inter *interpreter) evalTernary(te parser.TernaryExpr) (awkvalue, error) {
+	var res awkvalue
+	var err error
+	cond, err := inter.eval(te.Cond)
+	if err != nil {
+		return nil, err
+	}
+	if isTruthy(cond) {
+		res, err = inter.eval(te.Expr0)
+	} else {
+		res, err = inter.eval(te.Expr1)
+	}
+	return res, err
 }
 
 func (inter *interpreter) evalId(i parser.IdExpr) (awkvalue, error) {
