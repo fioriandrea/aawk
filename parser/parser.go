@@ -82,6 +82,13 @@ type PrintStat struct {
 	Stat
 }
 
+type IfStat struct {
+	If   lexer.Token
+	Cond Expr
+	Body Stat
+	Stat
+}
+
 type BlockStat []Stat
 
 func (bs BlockStat) isStat() {}
@@ -211,14 +218,19 @@ func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, error) {
 }
 
 func (ps *parser) stat() (Stat, error) {
+	var stat Stat
+	var err error
 	switch ps.current.Type {
 	case lexer.Print:
-		stat, err := ps.printStat()
-		return stat, err
+		stat, err = ps.printStat()
+	case lexer.If:
+		stat, err = ps.ifStat()
+	case lexer.LeftCurly:
+		stat, err = ps.block()
 	default:
-		stat, err := ps.exprStat()
-		return stat, err
+		stat, err = ps.exprStat()
 	}
+	return stat, err
 }
 
 func (ps *parser) exprStat() (ExprStat, error) {
@@ -230,7 +242,7 @@ func (ps *parser) exprStat() (ExprStat, error) {
 }
 
 func (ps *parser) printStat() (PrintStat, error) {
-	ps.advance()
+	ps.eat(lexer.Print)
 	op := ps.previous
 	exprs, err := ps.exprListUntil()
 	if err != nil {
@@ -239,6 +251,31 @@ func (ps *parser) printStat() (PrintStat, error) {
 	return PrintStat{
 		Print: op,
 		Exprs: exprs,
+	}, nil
+}
+
+func (ps *parser) ifStat() (IfStat, error) {
+	ps.eat(lexer.If)
+	op := ps.previous
+	if !ps.eat(lexer.LeftParen) {
+		return IfStat{}, ps.parseErrorAtCurrent("missing '(' for if statement condition")
+	}
+	cond, err := ps.expr()
+	if err != nil {
+		return IfStat{}, err
+	}
+	if !ps.eat(lexer.RightParen) {
+		return IfStat{}, ps.parseErrorAtCurrent("missing ')' closing if statement condition")
+	}
+	ps.eat(lexer.Newline)
+	body, err := ps.stat()
+	if err != nil {
+		return IfStat{}, err
+	}
+	return IfStat{
+		If:   op,
+		Cond: cond,
+		Body: body,
 	}, nil
 }
 

@@ -65,6 +65,8 @@ func (inter *interpreter) execute(stat parser.Stat) error {
 		return inter.executeExprStat(v)
 	case parser.PrintStat:
 		return inter.executePrintStat(v)
+	case parser.IfStat:
+		return inter.executeIfStat(v)
 	}
 	return nil
 }
@@ -100,6 +102,20 @@ func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
 		sep = " " // TODO: use OFS
 	}
 	fmt.Println()
+	return nil
+}
+
+func (inter *interpreter) executeIfStat(ifs parser.IfStat) error {
+	cond, err := inter.eval(ifs.Cond)
+	if err != nil {
+		return err
+	}
+	if isTruthy(cond) {
+		err := inter.execute(ifs.Body)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
