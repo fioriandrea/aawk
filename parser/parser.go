@@ -23,6 +23,13 @@ type BinaryExpr struct {
 	Expr
 }
 
+type BinaryBoolExpr struct {
+	Left  Expr
+	Op    lexer.Token
+	Right Expr
+	Expr
+}
+
 type UnaryExpr struct {
 	Op    lexer.Token
 	Right Expr
@@ -418,7 +425,7 @@ func (ps *parser) assignExpr() (Expr, error) {
 }
 
 func (ps *parser) ternaryExpr() (Expr, error) {
-	cond, err := ps.comparisonExpr()
+	cond, err := ps.orExpr()
 	if err != nil {
 		return nil, err
 	}
@@ -443,6 +450,46 @@ func (ps *parser) ternaryExpr() (Expr, error) {
 	return cond, nil
 }
 
+func (ps *parser) orExpr() (Expr, error) {
+	left, err := ps.andExpr()
+	if err != nil {
+		return nil, err
+	}
+	for ps.eat(lexer.DoublePipe) {
+		op := ps.previous
+		right, err := ps.andExpr()
+		if err != nil {
+			return nil, err
+		}
+		left = BinaryBoolExpr{
+			Left:  left,
+			Op:    op,
+			Right: right,
+		}
+	}
+	return left, nil
+}
+
+func (ps *parser) andExpr() (Expr, error) {
+	left, err := ps.comparisonExpr()
+	if err != nil {
+		return nil, err
+	}
+	for ps.eat(lexer.DoubleAnd) {
+		op := ps.previous
+		right, err := ps.comparisonExpr()
+		if err != nil {
+			return nil, err
+		}
+		left = BinaryBoolExpr{
+			Left:  left,
+			Op:    op,
+			Right: right,
+		}
+	}
+	return left, nil
+}
+
 func (ps *parser) comparisonExpr() (Expr, error) {
 	left, err := ps.concatExpr()
 	if err != nil {
@@ -454,7 +501,7 @@ func (ps *parser) comparisonExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = BinaryExpr{
+		left = BinaryBoolExpr{
 			Left:  left,
 			Op:    op,
 			Right: right,

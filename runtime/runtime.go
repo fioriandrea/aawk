@@ -179,6 +179,8 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 		val, err = inter.evalPostIncrement(v)
 	case parser.TernaryExpr:
 		val, err = inter.evalTernary(v)
+	case parser.BinaryBoolExpr:
+		val, err = inter.evalBinaryBool(v)
 	}
 	return val, err
 }
@@ -266,6 +268,56 @@ func (inter *interpreter) evalBinary(b parser.BinaryExpr) (awkvalue, error) {
 		}
 	}
 	return res, err
+}
+
+func (inter *interpreter) evalBinaryBool(bb parser.BinaryBoolExpr) (awkvalue, error) {
+	var val awkvalue
+	var err error
+	switch bb.Op.Type {
+	case lexer.DoubleAnd:
+		val, err = inter.evalAnd(bb)
+	case lexer.DoublePipe:
+		val, err = inter.evalOr(bb)
+	}
+	return val, err
+}
+
+func (inter *interpreter) evalAnd(bb parser.BinaryBoolExpr) (awkvalue, error) {
+	left, err := inter.eval(bb.Left)
+	if err != nil {
+		return nil, err
+	}
+	if !isTruthy(left) {
+		return awknumber(0), nil
+	}
+	right, err := inter.eval(bb.Right)
+	if err != nil {
+		return nil, err
+	}
+	if isTruthy(right) {
+		return awknumber(1), nil
+	} else {
+		return awknumber(0), nil
+	}
+}
+
+func (inter *interpreter) evalOr(bb parser.BinaryBoolExpr) (awkvalue, error) {
+	left, err := inter.eval(bb.Left)
+	if err != nil {
+		return nil, err
+	}
+	if isTruthy(left) {
+		return awknumber(1), nil
+	}
+	right, err := inter.eval(bb.Right)
+	if err != nil {
+		return nil, err
+	}
+	if isTruthy(right) {
+		return awknumber(1), nil
+	} else {
+		return awknumber(0), nil
+	}
 }
 
 func (inter *interpreter) compareValues(left, right awkvalue) int {
