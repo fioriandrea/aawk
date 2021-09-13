@@ -115,6 +115,11 @@ func (inter *interpreter) executeIfStat(ifs parser.IfStat) error {
 		if err != nil {
 			return err
 		}
+	} else if ifs.ElseBody != nil {
+		err := inter.execute(ifs.ElseBody)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

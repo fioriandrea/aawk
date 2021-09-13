@@ -83,9 +83,10 @@ type PrintStat struct {
 }
 
 type IfStat struct {
-	If   lexer.Token
-	Cond Expr
-	Body Stat
+	If       lexer.Token
+	Cond     Expr
+	Body     Stat
+	ElseBody Stat
 	Stat
 }
 
@@ -203,12 +204,6 @@ func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, error) {
 			continue
 		}
 		stats = append(stats, stat)
-		if !ps.checkTerminator() {
-			errtoret = ps.parseErrorAtCurrent("expected terminator")
-			fmt.Fprintln(os.Stderr, errtoret)
-			continue
-		}
-		ps.advance()
 		ps.skipNewLines()
 		if ps.check(types...) {
 			break
@@ -238,6 +233,9 @@ func (ps *parser) exprStat() (ExprStat, error) {
 	if err != nil {
 		return ExprStat{}, err
 	}
+	if !ps.eatTerminator() {
+		return ExprStat{}, ps.parseErrorAtCurrent("expected terminator")
+	}
 	return ExprStat{Expr: expr}, nil
 }
 
@@ -247,6 +245,9 @@ func (ps *parser) printStat() (PrintStat, error) {
 	exprs, err := ps.exprListUntil()
 	if err != nil {
 		return PrintStat{}, err
+	}
+	if !ps.eatTerminator() {
+		return PrintStat{}, ps.parseErrorAtCurrent("expected terminator")
 	}
 	return PrintStat{
 		Print: op,
@@ -272,10 +273,18 @@ func (ps *parser) ifStat() (IfStat, error) {
 	if err != nil {
 		return IfStat{}, err
 	}
+	var elsebody Stat
+	if ps.eat(lexer.Else) {
+		elsebody, err = ps.stat()
+		if err != nil {
+			return IfStat{}, err
+		}
+	}
 	return IfStat{
-		If:   op,
-		Cond: cond,
-		Body: body,
+		If:       op,
+		Cond:     cond,
+		Body:     body,
+		ElseBody: elsebody,
 	}, nil
 }
 
@@ -569,6 +578,14 @@ func (ps *parser) check(types ...lexer.TokenType) bool {
 
 func (ps *parser) checkTerminator() bool {
 	return ps.check(lexer.Newline, lexer.Eof, lexer.Semicolon)
+}
+
+func (ps *parser) eatTerminator() bool {
+	if ps.checkTerminator() {
+		ps.advance()
+		return true
+	}
+	return false
 }
 
 func (ps *parser) eat(types ...lexer.TokenType) bool {
