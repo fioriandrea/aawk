@@ -105,44 +105,156 @@ var keywords = map[string]TokenType{
 	"getline":  Getline,
 }
 
-var punctuations = map[string]TokenType{
-	"++": Increment,
-	"--": Decrement,
-	"^":  Caret,
-	"!":  Not,
-	"+":  Plus,
-	"-":  Minus,
-	"*":  Star,
-	"/":  Slash,
-	"%":  Percent,
-	"<":  Less,
-	"<=": LessEqual,
-	"!=": NotEqual,
-	"==": Equal,
-	">":  Greater,
-	">=": GreaterEqual,
-	"~":  Match,
-	"!~": NotMatch,
-	"&&": DoubleAnd,
-	"||": DoublePipe,
-	"?":  QuestionMark,
-	":":  Colon,
-	",":  Comma,
-	"^=": ExpAssign,
-	"%=": ModAssign,
-	"*=": MulAssign,
-	"/=": DivAssign,
-	"+=": PlusAssign,
-	"-=": MinusAssign,
-	"=":  Assign,
-	"{":  LeftCurly,
-	"}":  RightCurly,
-	"[":  LeftSquare,
-	"]":  RightSquare,
-	"(":  LeftParen,
-	")":  RightParen,
-	"$":  Dollar,
-	";":  Semicolon,
+type trienode struct {
+	current TokenType
+	longer  map[rune]trienode
+}
+
+var punctuations = trienode{
+	current: Error,
+	longer: map[rune]trienode{
+		'+': {
+			current: Plus,
+			longer: map[rune]trienode{
+				'+': {
+					current: Increment,
+				},
+				'=': {
+					current: PlusAssign,
+				},
+			},
+		},
+		'-': {
+			current: Minus,
+			longer: map[rune]trienode{
+				'-': {
+					current: Decrement,
+				},
+				'=': {
+					current: MinusAssign,
+				},
+			},
+		},
+		'*': {
+			current: Star,
+			longer: map[rune]trienode{
+				'=': {
+					current: MulAssign,
+				},
+			},
+		},
+		'/': {
+			current: Slash,
+			longer: map[rune]trienode{
+				'=': {
+					current: DivAssign,
+				},
+			},
+		},
+		'%': {
+			current: Percent,
+			longer: map[rune]trienode{
+				'=': {
+					current: ModAssign,
+				},
+			},
+		},
+		'^': {
+			current: Caret,
+			longer: map[rune]trienode{
+				'=': {
+					current: ExpAssign,
+				},
+			},
+		},
+		'!': {
+			current: Not,
+			longer: map[rune]trienode{
+				'=': {
+					current: NotEqual,
+				},
+				'~': {
+					current: NotMatch,
+				},
+			},
+		},
+		'=': {
+			current: Assign,
+			longer: map[rune]trienode{
+				'=': {
+					current: Equal,
+				},
+			},
+		},
+		'<': {
+			current: Less,
+			longer: map[rune]trienode{
+				'=': {
+					current: LessEqual,
+				},
+			},
+		},
+		'>': {
+			current: Greater,
+			longer: map[rune]trienode{
+				'=': {
+					current: GreaterEqual,
+				},
+			},
+		},
+		'~': {
+			current: Match,
+		},
+		'?': {
+			current: QuestionMark,
+		},
+		':': {
+			current: Colon,
+		},
+		',': {
+			current: Comma,
+		},
+		'{': {
+			current: LeftCurly,
+		},
+		'}': {
+			current: RightCurly,
+		},
+		'[': {
+			current: LeftSquare,
+		},
+		']': {
+			current: RightSquare,
+		},
+		'(': {
+			current: LeftParen,
+		},
+		')': {
+			current: RightParen,
+		},
+		'$': {
+			current: Dollar,
+		},
+		';': {
+			current: Semicolon,
+		},
+		'&': {
+			current: Error,
+			longer: map[rune]trienode{
+				'&': {
+					current: DoubleAnd,
+				},
+			},
+		},
+		'|': {
+			current: Error,
+			longer: map[rune]trienode{
+				'|': {
+					current: DoublePipe,
+				},
+			},
+		},
+	},
 }
 
 type Token struct {
@@ -283,14 +395,23 @@ func (l *lexer) number() Token {
 
 func (l *lexer) punctuation() Token {
 	var lexeme strings.Builder
-	for !unicode.IsSpace(l.currentRune) && !unicode.IsLetter(l.currentRune) && !unicode.IsDigit(l.currentRune) && !l.atEnd() {
+	currnode := punctuations
+	for {
 		fmt.Fprintf(&lexeme, "%c", l.currentRune)
-		l.advance()
+		if currnode.longer == nil {
+			break
+		}
+		if v, ok := currnode.longer[l.currentRune]; ok {
+			currnode = v
+			l.advance()
+		} else {
+			break
+		}
 	}
-	if t, ok := punctuations[lexeme.String()]; ok {
-		return l.makeTokenFromBuilder(t, lexeme)
+	if currnode.current == Error {
+		return l.makeErrorToken(fmt.Sprintf("undefined operator '%s'", lexeme.String()))
 	}
-	return l.makeErrorToken(fmt.Sprintf("undefined operator '%s'", lexeme.String()))
+	return l.makeTokenFromBuilder(currnode.current, lexeme)
 }
 
 func (l *lexer) makeTokenFromBuilder(ttype TokenType, builder strings.Builder) Token {
