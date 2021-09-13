@@ -201,7 +201,6 @@ func (l *lexer) next(output chan Token) {
 		for l.currentRune != '\n' && !l.atEnd() {
 			l.advance()
 		}
-		l.advance()
 	case l.currentRune == '"':
 		output <- l.string()
 	case unicode.IsLetter(l.currentRune) || l.currentRune == '_':
@@ -227,9 +226,7 @@ func (l *lexer) string() Token {
 		if l.currentRune == '"' && prev != '\\' {
 			break
 		}
-		if l.currentRune != '\\' || prev == '\\' {
-			l.currentRuneInside(&lexeme)
-		}
+		l.currentRuneInside(&lexeme)
 		prev = l.currentRune
 		l.advance()
 	}

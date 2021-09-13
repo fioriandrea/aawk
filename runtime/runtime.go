@@ -148,7 +148,8 @@ func (inter *interpreter) printValue(v awkvalue) {
 	case awknumber:
 		fmt.Print(vv)
 	case awkstring:
-		fmt.Print(vv)
+		s, _ := strconv.Unquote(fmt.Sprintf("\"%s\"", vv))
+		fmt.Print(s)
 	}
 }
 
