@@ -92,21 +92,25 @@ func (inter *interpreter) executeExprStat(es parser.ExprStat) error {
 }
 
 func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
-	sep := ""
-	for _, expr := range ps.Exprs {
-		v, err := inter.eval(expr)
-		if err != nil {
-			return err
+	if ps.Exprs == nil {
+		inter.printValue(inter.getField(0))
+	} else {
+		sep := ""
+		for _, expr := range ps.Exprs {
+			v, err := inter.eval(expr)
+			if err != nil {
+				return err
+			}
+			_, isarr := v.(awkarray)
+			if isarr {
+				return inter.runtimeError(ps.Print, "cannot print array")
+			}
+			fmt.Print(sep)
+			inter.printValue(v)
+			sep = inter.toGoString(inter.builtins["OFS"])
 		}
-		_, isarr := v.(awkarray)
-		if isarr {
-			return inter.runtimeError(ps.Print, "cannot print array")
-		}
-		fmt.Print(sep)
-		inter.printValue(v)
-		sep = inter.toGoString(inter.getVariable("OFS"))
 	}
-	fmt.Print(inter.toGoString(inter.getVariable("ORS")))
+	fmt.Print(inter.toGoString(inter.builtins["ORS"]))
 	return nil
 }
 
@@ -628,7 +632,7 @@ func (inter *interpreter) setField(i int, v awkvalue) {
 		for _, split := range re.Split(str, -1) {
 			inter.fields = append(inter.fields, awknumericstring(split))
 		}
-		inter.setVariable("NR", lexer.Token{}, awknumber(len(inter.fields)-1))
+		inter.setVariable("NF", lexer.Token{}, awknumber(len(inter.fields)-1))
 	}
 }
 
@@ -657,6 +661,7 @@ func (inter *interpreter) initBuiltInVars() {
 	inter.builtins = map[string]awkvalue{
 		"CONVFMT": awknormalstring("%.6g"),
 		"FS":      awknormalstring(" "),
+		"NF":      nil,
 		"NR":      nil,
 		"OFS":     awknormalstring(" "),
 		"ORS":     awknormalstring("\\n"),
@@ -752,8 +757,10 @@ func Run(items []parser.Item) error {
 
 	if len(normals) > 0 {
 		scanner := bufio.NewScanner(os.Stdin) // TODO: use RS
+		inter.builtins["NR"] = awknumber(1)
 		for scanner.Scan() {
-			inter.processInputRecord(scanner.Text())
+			text := scanner.Text()
+			inter.processInputRecord(text)
 			for _, normal := range normals {
 				patact := normal.(parser.PatternAction)
 				pat := patact.Pattern.(parser.ExprPattern)
@@ -765,6 +772,7 @@ func Run(items []parser.Item) error {
 					inter.execute(patact.Action)
 				}
 			}
+			inter.builtins["NR"] = inter.toNumber(inter.builtins["NR"]) + 1
 		}
 		if err := scanner.Err(); err != nil {
 			log.Fatal(err)
