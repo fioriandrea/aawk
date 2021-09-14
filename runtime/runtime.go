@@ -101,9 +101,9 @@ func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
 		}
 		fmt.Print(sep)
 		inter.printValue(v)
-		sep = " " // TODO: use OFS
+		sep = inter.toGoString(inter.env.get("OFS"))
 	}
-	fmt.Println()
+	fmt.Print(inter.toGoString(inter.env.get("ORS")))
 	return nil
 }
 
@@ -156,8 +156,7 @@ func (inter *interpreter) printValue(v awkvalue) {
 	case awknumber:
 		fmt.Print(vv)
 	case awkstring:
-		s, _ := strconv.Unquote(fmt.Sprintf("\"%s\"", vv))
-		fmt.Print(s)
+		fmt.Print(inter.toGoString(v))
 	}
 }
 
@@ -506,7 +505,7 @@ func (inter *interpreter) evalIndex(ind []parser.Expr) (awkstring, error) {
 			return awknormalstring(""), err
 		}
 		fmt.Fprintf(&buff, "%s%s", sep, inter.toString(res))
-		sep = " " // TODO use SUBSEP
+		sep = inter.toGoString(inter.env.get("SUBSEP"))
 	}
 	return awknormalstring(buff.String()), nil
 }
@@ -533,9 +532,22 @@ func (inter *interpreter) toString(v awkvalue) awkstring {
 	}
 }
 
+func (inter *interpreter) toGoString(v awkvalue) string {
+	astr := inter.toString(v)
+	var res string
+	switch sub := astr.(type) {
+	case awknormalstring:
+		res = string(sub)
+	case awknumericstring:
+		res = string(sub)
+	}
+	res, _ = strconv.Unquote(fmt.Sprintf("\"%s\"", res))
+	return res
+}
+
 func (inter *interpreter) numberToString(n float64) string {
 	if math.Trunc(n) == n {
-		return fmt.Sprintf("%.6g", n) // TODO: use CONVFMT
+		return fmt.Sprintf(inter.toGoString(inter.env.get("CONVFMT")), n)
 	} else {
 		return fmt.Sprintf("%d", int64(n))
 	}
@@ -549,6 +561,13 @@ func (inter *interpreter) stringToNumber(s string) float64 {
 
 func (inter *interpreter) processInputRecord(text string) {
 	// TODO: fill this function
+}
+
+func (inter *interpreter) initBuiltInVars() {
+	inter.env.set("CONVFMT", awknormalstring("%.6g"))
+	inter.env.set("OFS", awknormalstring(" "))
+	inter.env.set("ORS", awknormalstring("\\n"))
+	inter.env.set("SUBSEP", awknormalstring("\\034"))
 }
 
 func (inter *interpreter) runtimeError(tok lexer.Token, msg string) error {
@@ -597,6 +616,8 @@ func specialFilter(item parser.Item, ttype lexer.TokenType) bool {
 func Run(items []parser.Item) error {
 	var inter interpreter
 	inter.env = environment{}
+
+	inter.initBuiltInVars()
 
 	items, begins := filterItems(items, func(item parser.Item) bool {
 		return specialFilter(item, lexer.Begin)
