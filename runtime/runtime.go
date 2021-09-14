@@ -387,6 +387,10 @@ func (inter *interpreter) evalAssign(a parser.AssignExpr) (awkvalue, error) {
 	if err != nil {
 		return nil, err
 	}
+	_, isarr := right.(awkarray)
+	if isarr {
+		return nil, inter.runtimeError(a.Equal, "cannot use array in scalar context")
+	}
 	res, err := inter.evalAssignToLhs(a.Left, right)
 	return res, err
 }

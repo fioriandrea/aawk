@@ -53,6 +53,7 @@ type GroupingExpr struct {
 
 type AssignExpr struct {
 	Left  LhsExpr
+	Equal lexer.Token
 	Right Expr
 	Expr
 }
@@ -539,7 +540,7 @@ func (ps *parser) assignExpr() (Expr, error) {
 		return nil, err
 	}
 	if ps.eat(lexer.Assign, lexer.ExpAssign, lexer.ModAssign, lexer.MulAssign, lexer.DivAssign, lexer.PlusAssign, lexer.MinusAssign) {
-		op := ps.previous
+		equal := ps.previous
 		lhs, ok := left.(LhsExpr)
 		if !ok {
 			return nil, ps.parseErrorAtCurrent("cannot assign to a non left hand side")
@@ -548,6 +549,7 @@ func (ps *parser) assignExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
+		op := equal
 		switch op.Type {
 		case lexer.ExpAssign:
 			op.Type = lexer.Caret
@@ -571,6 +573,7 @@ func (ps *parser) assignExpr() (Expr, error) {
 		}
 		return AssignExpr{
 			Left:  lhs,
+			Equal: equal,
 			Right: right,
 		}, nil
 	}
