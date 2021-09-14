@@ -257,6 +257,8 @@ func (ps *parser) stat() (Stat, error) {
 		stat, err = ps.ifStat()
 	case lexer.While:
 		stat, err = ps.whileStat()
+	case lexer.Do:
+		stat, err = ps.doWhileStat()
 	case lexer.LeftCurly:
 		stat, err = ps.block()
 	default:
@@ -348,6 +350,36 @@ func (ps *parser) whileStat() (WhileStat, error) {
 		Cond:  cond,
 		Body:  body,
 	}, nil
+}
+
+func (ps *parser) doWhileStat() (Stat, error) {
+	ps.eat(lexer.Do)
+	body, err := ps.stat()
+	if err != nil {
+		return nil, err
+	}
+	if !ps.eat(lexer.While) {
+		return nil, ps.parseErrorAtCurrent("expected 'while' for do-while statement")
+	}
+	whileop := ps.previous
+	if !ps.eat(lexer.LeftParen) {
+		return WhileStat{}, ps.parseErrorAtCurrent("missing '(' for do-while statement condition")
+	}
+	cond, err := ps.expr()
+	if err != nil {
+		return nil, err
+	}
+	if !ps.eat(lexer.RightParen) {
+		return WhileStat{}, ps.parseErrorAtCurrent("missing ')' closing do-while statement condition")
+	}
+	return BlockStat([]Stat{
+		body,
+		WhileStat{
+			While: whileop,
+			Cond:  cond,
+			Body:  body,
+		},
+	}), nil
 }
 
 func (ps *parser) exprListUntil(types ...lexer.TokenType) ([]Expr, error) {
