@@ -251,16 +251,31 @@ func (ps *parser) stat() (Stat, error) {
 	var stat Stat
 	var err error
 	switch ps.current.Type {
-	case lexer.Print:
-		stat, err = ps.printStat()
 	case lexer.If:
 		stat, err = ps.ifStat()
 	case lexer.While:
 		stat, err = ps.whileStat()
 	case lexer.Do:
 		stat, err = ps.doWhileStat()
+	case lexer.For:
+		stat, err = ps.forStat()
 	case lexer.LeftCurly:
 		stat, err = ps.block()
+	default:
+		stat, err = ps.simpleStat()
+		if !ps.eatTerminator() && err != nil {
+			stat, err = nil, ps.parseErrorAtCurrent("expected terminator")
+		}
+	}
+	return stat, err
+}
+
+func (ps *parser) simpleStat() (Stat, error) {
+	var stat Stat
+	var err error
+	switch ps.current.Type {
+	case lexer.Print:
+		stat, err = ps.printStat()
 	default:
 		stat, err = ps.exprStat()
 	}
@@ -272,9 +287,6 @@ func (ps *parser) exprStat() (ExprStat, error) {
 	if err != nil {
 		return ExprStat{}, err
 	}
-	if !ps.eatTerminator() {
-		return ExprStat{}, ps.parseErrorAtCurrent("expected terminator")
-	}
 	return ExprStat{Expr: expr}, nil
 }
 
@@ -284,9 +296,6 @@ func (ps *parser) printStat() (PrintStat, error) {
 	exprs, err := ps.exprListUntil()
 	if err != nil {
 		return PrintStat{}, err
-	}
-	if !ps.eatTerminator() {
-		return PrintStat{}, ps.parseErrorAtCurrent("expected terminator")
 	}
 	return PrintStat{
 		Print: op,
@@ -378,6 +387,72 @@ func (ps *parser) doWhileStat() (Stat, error) {
 			While: whileop,
 			Cond:  cond,
 			Body:  body,
+		},
+	}), nil
+}
+
+func (ps *parser) forStat() (Stat, error) {
+	var err error
+	ps.eat(lexer.For)
+	op := ps.previous
+	if !ps.eat(lexer.LeftParen) {
+		return WhileStat{}, ps.parseErrorAtCurrent("missing '(' after 'for'")
+	}
+	var init Stat
+	if !ps.check(lexer.Semicolon) {
+		init, err = ps.simpleStat()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !ps.eat(lexer.Semicolon) {
+		return nil, ps.parseErrorAtCurrent("expected ';' after for statement initialization")
+	}
+
+	var cond Expr
+	if !ps.check(lexer.Semicolon) {
+		cond, err = ps.expr()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !ps.eat(lexer.Semicolon) {
+		return nil, ps.parseErrorAtCurrent("expected ';' after for statement condition")
+	}
+
+	var inc Stat
+	if !ps.check(lexer.RightParen) {
+		inc, err = ps.simpleStat()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !ps.eat(lexer.RightParen) {
+		return nil, ps.parseErrorAtCurrent("expected ')' after for statement increment")
+	}
+
+	body, err := ps.stat()
+	if err != nil {
+		return nil, err
+	}
+
+	if cond == nil {
+		cond = NumberExpr{Num: lexer.Token{
+			Type:   lexer.Number,
+			Lexeme: "1",
+			Line:   op.Line,
+		}}
+	}
+
+	return BlockStat([]Stat{
+		init,
+		WhileStat{
+			While: op,
+			Cond:  cond,
+			Body: BlockStat([]Stat{
+				body,
+				inc,
+			}),
 		},
 	}), nil
 }
