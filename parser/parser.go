@@ -87,6 +87,11 @@ type PostIncrementExpr struct {
 	IncrementExpr
 }
 
+type DollarExpr struct {
+	Field Expr
+	Expr
+}
+
 type TernaryExpr struct {
 	Cond  Expr
 	Expr0 Expr
@@ -156,6 +161,11 @@ type SpecialPattern struct {
 	Pattern
 }
 
+type ExprPattern struct {
+	Expr Expr
+	Pattern
+}
+
 type parser struct {
 	lexer    lexer.Lexer
 	current  lexer.Token
@@ -192,26 +202,64 @@ func (ps *parser) itemList() ([]Item, error) {
 }
 
 func (ps *parser) item() (Item, error) {
+	begtok := ps.current
 	pat, err := ps.pattern()
 	if err != nil {
 		return nil, err
 	}
-	act, err := ps.block()
-	if err != nil {
-		return nil, err
+	if pat == nil {
+		pat = ExprPattern{
+			Expr: NumberExpr{
+				Num: lexer.Token{
+					Type:   lexer.Number,
+					Lexeme: "1",
+					Line:   begtok.Line,
+				},
+			},
+		}
+	}
+	var act BlockStat
+	if ps.check(lexer.LeftCurly) {
+		act, err = ps.block()
+		if err != nil {
+			return nil, err
+		}
+	}
+	switch pat.(type) {
+	case SpecialPattern:
+		if act == nil {
+			return nil, ps.parseErrorAt(begtok, "special pattern must have an action")
+		}
+	case ExprPattern:
+		if act == nil {
+			act = BlockStat{
+				PrintStat{
+					Print: begtok,
+				},
+			}
+		}
 	}
 	return PatternAction{Pattern: pat, Action: act}, nil
 }
 
 func (ps *parser) pattern() (Pattern, error) {
-	defer ps.advance()
 	switch ps.current.Type {
 	case lexer.Begin:
 		fallthrough
 	case lexer.End:
-		return SpecialPattern{Type: ps.current}, nil
+		ps.advance()
+		return SpecialPattern{Type: ps.previous}, nil
 	default:
-		return nil, ps.parseErrorAtCurrent("unexpected token")
+		if ps.check(lexer.LeftCurly) {
+			return nil, nil
+		}
+		res, err := ps.expr()
+		if err != nil {
+			return nil, err
+		}
+		return ExprPattern{
+			Expr: res,
+		}, nil
 	}
 }
 
@@ -741,7 +789,7 @@ func (ps *parser) preIncrementExpr() (Expr, error) {
 }
 
 func (ps *parser) postIncrementExpr() (Expr, error) {
-	expr, err := ps.termExpr()
+	expr, err := ps.dollarExpr()
 	if err != nil {
 		return nil, err
 	}
@@ -759,6 +807,20 @@ func (ps *parser) postIncrementExpr() (Expr, error) {
 		}, nil
 	}
 	return expr, nil
+}
+
+func (ps *parser) dollarExpr() (Expr, error) {
+	if ps.eat(lexer.Dollar) {
+		expr, err := ps.expr()
+		if err != nil {
+			return nil, err
+		}
+		return DollarExpr{
+			Field: expr,
+		}, nil
+	}
+	texpr, err := ps.termExpr()
+	return texpr, err
 }
 
 func (ps *parser) termExpr() (Expr, error) {

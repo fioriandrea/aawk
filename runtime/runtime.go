@@ -547,6 +547,10 @@ func (inter *interpreter) stringToNumber(s string) float64 {
 	return f
 }
 
+func (inter *interpreter) processInputRecord(text string) {
+	// TODO: fill this function
+}
+
 func (inter *interpreter) runtimeError(tok lexer.Token, msg string) error {
 	return fmt.Errorf("%s: at line %d (%s): %s", os.Args[0], tok.Line, tok.Lexeme, msg)
 }
@@ -593,10 +597,23 @@ func specialFilter(item parser.Item, ttype lexer.TokenType) bool {
 func Run(items []parser.Item) error {
 	var inter interpreter
 	inter.env = environment{}
+
 	items, begins := filterItems(items, func(item parser.Item) bool {
 		return specialFilter(item, lexer.Begin)
 	})
-	items, ends := filterItems(items, func(item parser.Item) bool {
+
+	items, normals := filterItems(items, func(item parser.Item) bool {
+		switch v := item.(type) {
+		case parser.PatternAction:
+			switch v.Pattern.(type) {
+			case parser.ExprPattern:
+				return true
+			}
+		}
+		return false
+	})
+
+	_, ends := filterItems(items, func(item parser.Item) bool {
 		return specialFilter(item, lexer.End)
 	})
 
@@ -608,8 +625,20 @@ func Run(items []parser.Item) error {
 		}
 	}
 
-	scanner := bufio.NewScanner(os.Stdin)
+	scanner := bufio.NewScanner(os.Stdin) // TODO: use RS
 	for scanner.Scan() {
+		inter.processInputRecord(scanner.Text())
+		for _, normal := range normals {
+			patact := normal.(parser.PatternAction)
+			pat := patact.Pattern.(parser.ExprPattern)
+			res, err := inter.eval(pat.Expr)
+			if err != nil {
+				return err
+			}
+			if isTruthy(res) {
+				inter.execute(patact.Action)
+			}
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
