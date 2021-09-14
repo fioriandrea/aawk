@@ -397,13 +397,9 @@ func (l *lexer) punctuation() Token {
 	var lexeme strings.Builder
 	currnode := punctuations
 	for {
-		if currnode.longer == nil {
-			break
-		}
 		if v, ok := currnode.longer[l.currentRune]; ok {
-			fmt.Fprintf(&lexeme, "%c", l.currentRune)
+			l.advanceInside(&lexeme)
 			currnode = v
-			l.advance()
 		} else {
 			break
 		}

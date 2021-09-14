@@ -501,7 +501,7 @@ func (ps *parser) comparisonExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = BinaryBoolExpr{
+		left = BinaryExpr{
 			Left:  left,
 			Op:    op,
 			Right: right,
