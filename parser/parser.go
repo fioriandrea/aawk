@@ -118,13 +118,6 @@ type IfStat struct {
 	Stat
 }
 
-type WhileStat struct {
-	While lexer.Token
-	Cond  Expr
-	Body  Stat
-	Stat
-}
-
 type ForStat struct {
 	For  lexer.Token
 	Init Stat
@@ -345,28 +338,28 @@ func (ps *parser) ifStat() (IfStat, error) {
 	}, nil
 }
 
-func (ps *parser) whileStat() (WhileStat, error) {
+func (ps *parser) whileStat() (ForStat, error) {
 	ps.eat(lexer.While)
 	op := ps.previous
 	if !ps.eat(lexer.LeftParen) {
-		return WhileStat{}, ps.parseErrorAtCurrent("missing '(' for while statement condition")
+		return ForStat{}, ps.parseErrorAtCurrent("missing '(' for while statement condition")
 	}
 	cond, err := ps.expr()
 	if err != nil {
-		return WhileStat{}, err
+		return ForStat{}, err
 	}
 	if !ps.eat(lexer.RightParen) {
-		return WhileStat{}, ps.parseErrorAtCurrent("missing ')' closing while statement condition")
+		return ForStat{}, ps.parseErrorAtCurrent("missing ')' closing while statement condition")
 	}
 	ps.eat(lexer.Newline)
 	body, err := ps.stat()
 	if err != nil {
-		return WhileStat{}, err
+		return ForStat{}, err
 	}
-	return WhileStat{
-		While: op,
-		Cond:  cond,
-		Body:  body,
+	return ForStat{
+		For:  op,
+		Cond: cond,
+		Body: body,
 	}, nil
 }
 
@@ -381,68 +374,68 @@ func (ps *parser) doWhileStat() (Stat, error) {
 	}
 	whileop := ps.previous
 	if !ps.eat(lexer.LeftParen) {
-		return WhileStat{}, ps.parseErrorAtCurrent("missing '(' for do-while statement condition")
+		return nil, ps.parseErrorAtCurrent("missing '(' for do-while statement condition")
 	}
 	cond, err := ps.expr()
 	if err != nil {
 		return nil, err
 	}
 	if !ps.eat(lexer.RightParen) {
-		return WhileStat{}, ps.parseErrorAtCurrent("missing ')' closing do-while statement condition")
+		return nil, ps.parseErrorAtCurrent("missing ')' closing do-while statement condition")
 	}
 	return BlockStat([]Stat{
 		body,
-		WhileStat{
-			While: whileop,
-			Cond:  cond,
-			Body:  body,
+		ForStat{
+			For:  whileop,
+			Cond: cond,
+			Body: body,
 		},
 	}), nil
 }
 
-func (ps *parser) forStat() (Stat, error) {
+func (ps *parser) forStat() (ForStat, error) {
 	var err error
 	ps.eat(lexer.For)
 	op := ps.previous
 	if !ps.eat(lexer.LeftParen) {
-		return WhileStat{}, ps.parseErrorAtCurrent("missing '(' after 'for'")
+		return ForStat{}, ps.parseErrorAtCurrent("missing '(' after 'for'")
 	}
 	var init Stat
 	if !ps.check(lexer.Semicolon) {
 		init, err = ps.simpleStat()
 		if err != nil {
-			return nil, err
+			return ForStat{}, err
 		}
 	}
 	if !ps.eat(lexer.Semicolon) {
-		return nil, ps.parseErrorAtCurrent("expected ';' after for statement initialization")
+		return ForStat{}, ps.parseErrorAtCurrent("expected ';' after for statement initialization")
 	}
 
 	var cond Expr
 	if !ps.check(lexer.Semicolon) {
 		cond, err = ps.expr()
 		if err != nil {
-			return nil, err
+			return ForStat{}, err
 		}
 	}
 	if !ps.eat(lexer.Semicolon) {
-		return nil, ps.parseErrorAtCurrent("expected ';' after for statement condition")
+		return ForStat{}, ps.parseErrorAtCurrent("expected ';' after for statement condition")
 	}
 
 	var inc Stat
 	if !ps.check(lexer.RightParen) {
 		inc, err = ps.simpleStat()
 		if err != nil {
-			return nil, err
+			return ForStat{}, err
 		}
 	}
 	if !ps.eat(lexer.RightParen) {
-		return nil, ps.parseErrorAtCurrent("expected ')' after for statement increment")
+		return ForStat{}, ps.parseErrorAtCurrent("expected ')' after for statement increment")
 	}
 
 	body, err := ps.stat()
 	if err != nil {
-		return nil, err
+		return ForStat{}, err
 	}
 
 	if cond == nil {
