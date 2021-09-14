@@ -74,6 +74,12 @@ type IndexingExpr struct {
 	LhsExpr
 }
 
+type DollarExpr struct {
+	Dollar lexer.Token
+	Field  Expr
+	LhsExpr
+}
+
 type IncrementExpr struct {
 	Op  lexer.Token
 	Lhs LhsExpr
@@ -86,11 +92,6 @@ type PreIncrementExpr struct {
 
 type PostIncrementExpr struct {
 	IncrementExpr
-}
-
-type DollarExpr struct {
-	Field Expr
-	Expr
 }
 
 type TernaryExpr struct {
@@ -314,7 +315,7 @@ func (ps *parser) stat() (Stat, error) {
 		stat, err = ps.block()
 	default:
 		stat, err = ps.simpleStat()
-		if !ps.eatTerminator() && err != nil {
+		if !ps.eatTerminator() && err == nil {
 			stat, err = nil, ps.parseErrorAtCurrent("expected terminator")
 		}
 	}
@@ -543,7 +544,7 @@ func (ps *parser) assignExpr() (Expr, error) {
 		equal := ps.previous
 		lhs, ok := left.(LhsExpr)
 		if !ok {
-			return nil, ps.parseErrorAtCurrent("cannot assign to a non left hand side")
+			return nil, ps.parseErrorAt(equal, "cannot assign to a non left hand side")
 		}
 		right, err := ps.expr()
 		if err != nil {
@@ -814,12 +815,14 @@ func (ps *parser) postIncrementExpr() (Expr, error) {
 
 func (ps *parser) dollarExpr() (Expr, error) {
 	if ps.eat(lexer.Dollar) {
-		expr, err := ps.expr()
+		dollar := ps.previous
+		expr, err := ps.termExpr()
 		if err != nil {
 			return nil, err
 		}
 		return DollarExpr{
-			Field: expr,
+			Dollar: dollar,
+			Field:  expr,
 		}, nil
 	}
 	texpr, err := ps.termExpr()
