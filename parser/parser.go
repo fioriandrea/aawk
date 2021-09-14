@@ -791,8 +791,10 @@ func (ps *parser) termExpr() (Expr, error) {
 		sub, err = nil, ps.parseErrorAtCurrent("")
 		ps.advance()
 	default:
-		sub, err = nil, ps.parseErrorAtCurrent("unexpected token")
-		ps.advance()
+		if !ps.checkTerminator() {
+			sub, err = nil, ps.parseErrorAtCurrent("unexpected token")
+			ps.advance()
+		}
 	}
 	return sub, err
 }
