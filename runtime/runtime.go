@@ -69,6 +69,8 @@ func (inter *interpreter) execute(stat parser.Stat) error {
 		return inter.executeIfStat(v)
 	case parser.WhileStat:
 		return inter.executeWhileStat(v)
+	case parser.ForStat:
+		return inter.executeForStat(v)
 	}
 	return nil
 }
@@ -136,6 +138,31 @@ func (inter *interpreter) executeWhileStat(ws parser.WhileStat) error {
 			break
 		}
 		err = inter.execute(ws.Body)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (inter *interpreter) executeForStat(fs parser.ForStat) error {
+	err := inter.execute(fs.Init)
+	if err != nil {
+		return err
+	}
+	for {
+		cond, err := inter.eval(fs.Cond)
+		if err != nil {
+			return err
+		}
+		if !isTruthy(cond) {
+			break
+		}
+		err = inter.execute(fs.Body)
+		if err != nil {
+			return err
+		}
+		err = inter.execute(fs.Inc)
 		if err != nil {
 			return err
 		}

@@ -125,6 +125,15 @@ type WhileStat struct {
 	Stat
 }
 
+type ForStat struct {
+	For  lexer.Token
+	Init Stat
+	Cond Expr
+	Inc  Stat
+	Body Stat
+	Stat
+}
+
 type BlockStat []Stat
 
 func (bs BlockStat) isStat() {}
@@ -444,17 +453,13 @@ func (ps *parser) forStat() (Stat, error) {
 		}}
 	}
 
-	return BlockStat([]Stat{
-		init,
-		WhileStat{
-			While: op,
-			Cond:  cond,
-			Body: BlockStat([]Stat{
-				body,
-				inc,
-			}),
-		},
-	}), nil
+	return ForStat{
+		For:  op,
+		Init: init,
+		Cond: cond,
+		Inc:  inc,
+		Body: body,
+	}, nil
 }
 
 func (ps *parser) exprListUntil(types ...lexer.TokenType) ([]Expr, error) {
