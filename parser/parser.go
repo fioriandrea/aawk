@@ -157,14 +157,14 @@ type SpecialPattern struct {
 }
 
 type parser struct {
-	tokens   chan lexer.Token
+	lexer    lexer.Lexer
 	current  lexer.Token
 	previous lexer.Token
 }
 
-func GetSyntaxTree(tokens chan lexer.Token) ([]Item, error) {
+func GetSyntaxTree(lexer lexer.Lexer) ([]Item, error) {
 	ps := parser{
-		tokens: tokens,
+		lexer: lexer,
 	}
 	ps.advance()
 	res, err := ps.itemList()
@@ -844,7 +844,7 @@ func (ps *parser) parseErrorAtCurrent(msg string) error {
 }
 
 func (ps *parser) advance() {
-	t := <-ps.tokens
+	t := ps.lexer.Next()
 	ps.previous = ps.current
 	ps.current = t
 }

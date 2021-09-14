@@ -263,25 +263,24 @@ type Token struct {
 	Line   int
 }
 
-type lexer struct {
-	line         int
-	currentRune  rune
-	reader       io.RuneReader
-	previousType TokenType
+type Lexer struct {
+	line          int
+	currentRune   rune
+	previousRune  rune
+	reader        io.RuneReader
+	previousToken Token
 }
 
-func GetTokens(reader io.RuneReader, output chan Token) {
-	lex := lexer{
+func NewLexer(reader io.RuneReader) Lexer {
+	lex := Lexer{
 		line:   1,
 		reader: reader,
 	}
 	lex.advance()
-	for {
-		lex.next(output)
-	}
+	return lex
 }
 
-func (l *lexer) next(output chan Token) {
+func (l *Lexer) Next() Token {
 	contains := func(s []TokenType, e TokenType) bool {
 		for _, a := range s {
 			if a == e {
@@ -290,47 +289,49 @@ func (l *lexer) next(output chan Token) {
 		}
 		return false
 	}
-	switch {
-	case l.atEnd():
-		output <- l.makeToken(Eof, "EOF")
-	case l.currentRune == '\\':
-		potentialErr := l.makeErrorToken("unexpected '\\'")
-		l.advance()
-		if l.currentRune == '\n' {
-			l.newLine()
-		} else {
-			output <- potentialErr
-		}
-	case l.currentRune == '\n':
-		if contains([]TokenType{Comma, LeftCurly, DoubleAnd, DoublePipe, Do, Else}, l.previousType) {
-			l.newLine()
-		} else {
-			output <- l.newLine()
-		}
-	case unicode.IsSpace(l.currentRune):
-		l.advance()
-	case l.currentRune == '#':
-		for l.currentRune != '\n' && !l.atEnd() {
+	for {
+		switch {
+		case l.atEnd():
+			return l.makeToken(Eof, "EOF")
+		case l.currentRune == '\\':
+			potentialErr := l.makeErrorToken("unexpected '\\'")
 			l.advance()
+			if l.currentRune == '\n' {
+				l.newLine()
+			} else {
+				return potentialErr
+			}
+		case l.currentRune == '\n':
+			if contains([]TokenType{Comma, LeftCurly, DoubleAnd, DoublePipe, Do, Else}, l.previousToken.Type) {
+				l.newLine()
+			} else {
+				return l.newLine()
+			}
+		case unicode.IsSpace(l.currentRune):
+			l.advance()
+		case l.currentRune == '#':
+			for l.currentRune != '\n' && !l.atEnd() {
+				l.advance()
+			}
+		case l.currentRune == '"':
+			return l.string()
+		case unicode.IsLetter(l.currentRune) || l.currentRune == '_':
+			return l.identifier()
+		case unicode.IsDigit(l.currentRune):
+			return l.number()
+		default:
+			return l.punctuation()
 		}
-	case l.currentRune == '"':
-		output <- l.string()
-	case unicode.IsLetter(l.currentRune) || l.currentRune == '_':
-		output <- l.identifier()
-	case unicode.IsDigit(l.currentRune):
-		output <- l.number()
-	default:
-		output <- l.punctuation()
 	}
 }
 
-func (l *lexer) newLine() Token {
+func (l *Lexer) newLine() Token {
 	l.line++
 	l.advance()
 	return l.makeToken(Newline, "\n")
 }
 
-func (l *lexer) string() Token {
+func (l *Lexer) string() Token {
 	var lexeme strings.Builder
 	prev := l.currentRune
 	l.advance()
@@ -351,7 +352,7 @@ func (l *lexer) string() Token {
 	return l.makeTokenFromBuilder(String, lexeme)
 }
 
-func (l *lexer) identifier() Token {
+func (l *Lexer) identifier() Token {
 	var lexeme strings.Builder
 	for l.currentRune == '_' || unicode.IsDigit(l.currentRune) || unicode.IsLetter(l.currentRune) {
 		l.advanceInside(&lexeme)
@@ -364,7 +365,7 @@ func (l *lexer) identifier() Token {
 	return l.makeTokenFromBuilder(rettype, lexeme)
 }
 
-func (l *lexer) number() Token {
+func (l *Lexer) number() Token {
 	var lexeme strings.Builder
 	for unicode.IsDigit(l.currentRune) {
 		l.advanceInside(&lexeme)
@@ -393,7 +394,7 @@ func (l *lexer) number() Token {
 	return l.makeTokenFromBuilder(Number, lexeme)
 }
 
-func (l *lexer) punctuation() Token {
+func (l *Lexer) punctuation() Token {
 	var lexeme strings.Builder
 	currnode := punctuations
 	for {
@@ -410,24 +411,24 @@ func (l *lexer) punctuation() Token {
 	return l.makeTokenFromBuilder(currnode.current, lexeme)
 }
 
-func (l *lexer) makeTokenFromBuilder(ttype TokenType, builder strings.Builder) Token {
+func (l *Lexer) makeTokenFromBuilder(ttype TokenType, builder strings.Builder) Token {
 	return l.makeToken(ttype, builder.String())
 }
 
-func (l *lexer) makeToken(ttype TokenType, lexeme string) Token {
-	l.previousType = ttype
-	return Token{
+func (l *Lexer) makeToken(ttype TokenType, lexeme string) Token {
+	l.previousToken = Token{
 		Type:   ttype,
 		Lexeme: lexeme,
 		Line:   l.line,
 	}
+	return l.previousToken
 }
 
-func (l *lexer) makeErrorToken(msg string) Token {
+func (l *Lexer) makeErrorToken(msg string) Token {
 	return l.makeToken(Error, msg)
 }
 
-func (l *lexer) advance() rune {
+func (l *Lexer) advance() rune {
 	c, _, err := l.reader.ReadRune()
 	if err != nil {
 		if err != io.EOF {
@@ -435,19 +436,20 @@ func (l *lexer) advance() rune {
 		}
 		c = '\000'
 	}
+	l.previousRune = l.currentRune
 	l.currentRune = c
 	return c
 }
 
-func (l *lexer) currentRuneInside(builder *strings.Builder) {
+func (l *Lexer) currentRuneInside(builder *strings.Builder) {
 	fmt.Fprintf(builder, "%c", l.currentRune)
 }
 
-func (l *lexer) advanceInside(builder *strings.Builder) {
+func (l *Lexer) advanceInside(builder *strings.Builder) {
 	l.currentRuneInside(builder)
 	l.advance()
 }
 
-func (l *lexer) atEnd() bool {
+func (l *Lexer) atEnd() bool {
 	return l.currentRune == '\000'
 }

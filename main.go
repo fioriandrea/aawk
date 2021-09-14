@@ -19,9 +19,8 @@ func main() {
 	}
 
 	reader := bufio.NewReader(filereader)
-	tokens := make(chan lexer.Token, 10)
-	go lexer.GetTokens(reader, tokens)
-	tree, err := parser.GetSyntaxTree(tokens)
+	lexer := lexer.NewLexer(reader)
+	tree, err := parser.GetSyntaxTree(lexer)
 	if err != nil {
 		os.Exit(1)
 	}
