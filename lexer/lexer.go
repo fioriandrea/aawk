@@ -28,6 +28,7 @@ const (
 	Equal
 	Greater
 	GreaterEqual
+	DoubleGreater
 	Match
 	NotMatch
 	DoubleAnd
@@ -202,6 +203,9 @@ var punctuations = trienode{
 			longer: map[rune]trienode{
 				'=': {
 					current: GreaterEqual,
+				},
+				'>': {
+					current: DoubleGreater,
 				},
 			},
 		},

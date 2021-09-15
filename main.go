@@ -22,7 +22,6 @@ func main() {
 	lexer := lexer.NewLexer(reader)
 	tree, err := parser.GetSyntaxTree(lexer)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	/*b, err := json.MarshalIndent(tree, "", "\t")

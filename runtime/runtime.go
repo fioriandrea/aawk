@@ -57,19 +57,26 @@ func (env environment) set(k string, v awkvalue) {
 	env[k] = v
 }
 
-type outprogram struct {
-	stdin  chan string
-	errors chan error
+type outfile struct {
+	stdin       chan string
+	closeErrors chan error
+}
+
+func newOutFile() outfile {
+	return outfile{
+		stdin:       make(chan string),
+		closeErrors: make(chan error),
+	}
 }
 
 type outprograms struct {
-	progs map[string]outprogram
+	progs map[string]outfile
 	wg    sync.WaitGroup
 }
 
 func newOutPrograms() outprograms {
 	return outprograms{
-		progs: map[string]outprogram{},
+		progs: map[string]outfile{},
 	}
 }
 
@@ -93,41 +100,47 @@ func (op outprograms) get(name string) chan string {
 	if err := cmd.Start(); err != nil {
 		log.Fatal(err)
 	}
-	prog = outprogram{}
-	prog.stdin = make(chan string)
-	prog.errors = make(chan error)
+	prog = newOutFile()
 	op.wg.Add(1)
 	go func() {
 		for str := range prog.stdin {
 			io.WriteString(stdin, str)
 		}
 		if err := stdin.Close(); err != nil {
-			prog.errors <- err
+			prog.closeErrors <- err
 		}
 		if err := cmd.Wait(); err != nil {
-			prog.errors <- err
+			prog.closeErrors <- err
 		}
-		close(prog.errors)
+		close(prog.closeErrors)
 		op.wg.Done()
 	}()
 	op.progs[name] = prog
 	return prog.stdin
 }
 
-func (op outprograms) close(name string) int {
-	prog, ok := op.progs[name]
-	if !ok {
-		return 1
-	}
-	close(prog.stdin)
+func closeOutfile(of outfile) int {
+	close(of.stdin)
 	success := 0
-	for err := range prog.errors {
+	for err := range of.closeErrors {
 		if err != nil {
 			success = 1
 		}
 	}
-	delete(op.progs, name)
 	return success
+}
+
+func closeOutfileInMap(m map[string]outfile, name string) int {
+	of, ok := m[name]
+	if !ok {
+		return 1
+	}
+	delete(m, name)
+	return closeOutfile(of)
+}
+
+func (op outprograms) close(name string) int {
+	return closeOutfileInMap(op.progs, name)
 }
 
 func (op outprograms) closeAll() {
@@ -137,12 +150,49 @@ func (op outprograms) closeAll() {
 	op.wg.Wait()
 }
 
+type outfiles map[string]outfile
+
+func (of outfiles) get(name string, mode int) chan string {
+	res, ok := of[name]
+	if ok {
+		return res.stdin
+	}
+	f, err := os.OpenFile(name, os.O_APPEND|os.O_CREATE|os.O_WRONLY|mode, 0600)
+	if err != nil {
+		log.Fatal(err)
+	}
+	res.stdin = make(chan string)
+	go func() {
+		for str := range res.stdin {
+			if _, err = f.WriteString(str); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+			}
+		}
+		res.closeErrors <- f.Close()
+		close(res.closeErrors)
+	}()
+	return res.stdin
+}
+
+func (of outfiles) getOverwrite(name string) chan string {
+	return of.get(name, 0)
+}
+
+func (of outfiles) getAppend(name string) chan string {
+	return of.get(name, os.O_APPEND)
+}
+
+func (of outfiles) close(name string) int {
+	return closeOutfileInMap(map[string]outfile(of), name)
+}
+
 type interpreter struct {
 	env         environment
 	builtins    map[string]awkvalue
 	fields      []awkvalue
 	stdoutchan  chan string
 	outprograms outprograms
+	outfiles    outfiles
 }
 
 func (inter *interpreter) execute(stat parser.Stat) error {
@@ -187,6 +237,10 @@ func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
 		switch ps.RedirOp.Type {
 		case lexer.Pipe:
 			outchan = inter.outprograms.get(filestr)
+		case lexer.Greater:
+			outchan = inter.outfiles.getOverwrite(filestr)
+		case lexer.DoubleGreater:
+			outchan = inter.outfiles.getAppend(filestr)
 		}
 	}
 	var res strings.Builder
@@ -402,7 +456,10 @@ func (inter *interpreter) evalClose(ce parser.CloseExpr) (awkvalue, error) {
 	if err != nil {
 		return nil, err
 	}
-	return awknumber(inter.outprograms.close(inter.toGoString(file))), nil
+	str := inter.toGoString(file)
+	pr := inter.outprograms.close(str)
+	fi := inter.outfiles.close(str)
+	return awknumber(pr + fi), nil
 }
 
 func (inter *interpreter) evalAnd(bb parser.BinaryBoolExpr) (awkvalue, error) {

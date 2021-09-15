@@ -353,13 +353,13 @@ func (ps *parser) exprStat() (ExprStat, error) {
 func (ps *parser) printStat() (PrintStat, error) {
 	ps.eat(lexer.Print)
 	op := ps.previous
-	exprs, err := ps.exprListUntil(lexer.Pipe)
+	exprs, err := ps.exprListUntil(lexer.Pipe, lexer.Greater, lexer.DoubleGreater)
 	if err != nil {
 		return PrintStat{}, err
 	}
 	var redir lexer.Token
 	var file Expr
-	if ps.eat(lexer.Pipe) {
+	if ps.eat(lexer.Pipe, lexer.Greater, lexer.DoubleGreater) {
 		redir = ps.previous
 		file, err = ps.expr()
 		if err != nil {
