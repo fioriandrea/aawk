@@ -57,20 +57,25 @@ func (env environment) set(k string, v awkvalue) {
 	env[k] = v
 }
 
-type outprogam struct {
+type outprogram struct {
 	stdin  chan string
 	errors chan error
 }
 
 type outprograms struct {
-	progs map[string]outprogam
+	progs map[string]outprogram
 	wg    sync.WaitGroup
 }
 
 func newOutPrograms() outprograms {
 	return outprograms{
-		progs: map[string]outprogam{},
+		progs: map[string]outprogram{},
 	}
+}
+
+func (op outprograms) has(name string) bool {
+	_, ok := op.progs[name]
+	return ok
 }
 
 func (op outprograms) get(name string) chan string {
@@ -88,7 +93,7 @@ func (op outprograms) get(name string) chan string {
 	if err := cmd.Start(); err != nil {
 		log.Fatal(err)
 	}
-	prog = outprogam{}
+	prog = outprogram{}
 	prog.stdin = make(chan string)
 	prog.errors = make(chan error)
 	op.wg.Add(1)
@@ -281,6 +286,8 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 		val, err = inter.evalBinaryBool(v)
 	case parser.DollarExpr:
 		val, err = inter.evalDollar(v)
+	case parser.CloseExpr:
+		val, err = inter.evalClose(v)
 	}
 	return val, err
 }
@@ -388,6 +395,14 @@ func (inter *interpreter) evalDollar(de parser.DollarExpr) (awkvalue, error) {
 		return nil, err
 	}
 	return inter.getField(int(inter.toGoFloat(ind))), nil
+}
+
+func (inter *interpreter) evalClose(ce parser.CloseExpr) (awkvalue, error) {
+	file, err := inter.eval(ce.File)
+	if err != nil {
+		return nil, err
+	}
+	return awknumber(inter.outprograms.close(inter.toGoString(file))), nil
 }
 
 func (inter *interpreter) evalAnd(bb parser.BinaryBoolExpr) (awkvalue, error) {

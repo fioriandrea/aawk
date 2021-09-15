@@ -101,6 +101,12 @@ type TernaryExpr struct {
 	Expr
 }
 
+type CloseExpr struct {
+	Close lexer.Token
+	File  Expr
+	Expr
+}
+
 type Stat interface {
 	isStat()
 	Node
@@ -347,7 +353,7 @@ func (ps *parser) exprStat() (ExprStat, error) {
 func (ps *parser) printStat() (PrintStat, error) {
 	ps.eat(lexer.Print)
 	op := ps.previous
-	exprs, err := ps.exprListUntil()
+	exprs, err := ps.exprListUntil(lexer.Pipe)
 	if err != nil {
 		return PrintStat{}, err
 	}
@@ -871,6 +877,8 @@ func (ps *parser) termExpr() (Expr, error) {
 				Id: id,
 			}, nil
 		}
+	case lexer.Close:
+		sub, err = ps.closeExpr()
 	case lexer.Error:
 		sub, err = nil, ps.parseErrorAtCurrent("")
 		ps.advance()
@@ -881,6 +889,25 @@ func (ps *parser) termExpr() (Expr, error) {
 		}
 	}
 	return sub, err
+}
+
+func (ps *parser) closeExpr() (Expr, error) {
+	ps.eat(lexer.Close)
+	op := ps.previous
+	if !ps.eat(lexer.LeftParen) {
+		return nil, ps.parseErrorAtCurrent("expected '(' after 'close'")
+	}
+	file, err := ps.expr()
+	if err != nil {
+		return nil, err
+	}
+	if !ps.eat(lexer.RightParen) {
+		return nil, ps.parseErrorAtCurrent("expected ')' after argument of 'close'")
+	}
+	return CloseExpr{
+		Close: op,
+		File:  file,
+	}, nil
 }
 
 func (ps *parser) groupingExpr() (Expr, error) {
