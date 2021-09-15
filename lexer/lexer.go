@@ -32,6 +32,7 @@ const (
 	NotMatch
 	DoubleAnd
 	DoublePipe
+	Pipe
 	QuestionMark
 	Colon
 	Comma
@@ -54,15 +55,17 @@ const (
 	Newline
 
 	Begin
-	End
 	Break
+	Close
 	Continue
 	Delete
 	Do
 	Else
+	End
 	Exit
 	For
 	Function
+	Getline
 	If
 	In
 	Next
@@ -70,7 +73,6 @@ const (
 	Printf
 	Return
 	While
-	Getline
 
 	Identifier
 
@@ -86,23 +88,24 @@ const (
 
 var keywords = map[string]TokenType{
 	"BEGIN":    Begin,
-	"END":      End,
 	"break":    Break,
+	"Close":    Close,
 	"continue": Continue,
 	"delete":   Delete,
 	"do":       Do,
 	"else":     Else,
+	"END":      End,
 	"exit":     Exit,
 	"for":      For,
 	"function": Function,
+	"getline":  Getline,
 	"if":       If,
 	"in":       In,
 	"next":     Next,
-	"print":    Print,
 	"printf":   Printf,
+	"print":    Print,
 	"return":   Return,
 	"while":    While,
-	"getline":  Getline,
 }
 
 type trienode struct {
@@ -247,7 +250,7 @@ var punctuations = trienode{
 			},
 		},
 		'|': {
-			current: Error,
+			current: Pipe,
 			longer: map[rune]trienode{
 				'|': {
 					current: DoublePipe,

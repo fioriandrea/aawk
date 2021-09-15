@@ -112,8 +112,10 @@ type ExprStat struct {
 }
 
 type PrintStat struct {
-	Print lexer.Token
-	Exprs []Expr
+	Print   lexer.Token
+	Exprs   []Expr
+	RedirOp lexer.Token
+	File    Expr
 	Stat
 }
 
@@ -222,7 +224,7 @@ func (ps *parser) item() (Item, error) {
 	}
 	var act BlockStat
 	if ps.check(lexer.LeftCurly) {
-		act, err = ps.block()
+		act, err = ps.blockStat()
 		if err != nil {
 			return nil, err
 		}
@@ -265,7 +267,7 @@ func (ps *parser) pattern() (Pattern, error) {
 	}
 }
 
-func (ps *parser) block() (BlockStat, error) {
+func (ps *parser) blockStat() (BlockStat, error) {
 	if !ps.eat(lexer.LeftCurly) {
 		return nil, ps.parseErrorAtCurrent("expected '{'")
 	}
@@ -312,7 +314,7 @@ func (ps *parser) stat() (Stat, error) {
 	case lexer.For:
 		stat, err = ps.forStat()
 	case lexer.LeftCurly:
-		stat, err = ps.block()
+		stat, err = ps.blockStat()
 	default:
 		stat, err = ps.simpleStat()
 		if !ps.eatTerminator() && err == nil {
@@ -349,9 +351,23 @@ func (ps *parser) printStat() (PrintStat, error) {
 	if err != nil {
 		return PrintStat{}, err
 	}
+	var redir lexer.Token
+	var file Expr
+	if ps.eat(lexer.Pipe) {
+		redir = ps.previous
+		file, err = ps.expr()
+		if err != nil {
+			return PrintStat{}, err
+		}
+		if file == nil {
+			return PrintStat{}, ps.parseErrorAt(redir, "expected expression after redirection operator")
+		}
+	}
 	return PrintStat{
-		Print: op,
-		Exprs: exprs,
+		Print:   op,
+		Exprs:   exprs,
+		RedirOp: redir,
+		File:    file,
 	}, nil
 }
 

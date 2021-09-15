@@ -3,12 +3,15 @@ package runtime
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/fioriandrea/aawk/lexer"
 	"github.com/fioriandrea/aawk/parser"
@@ -54,10 +57,87 @@ func (env environment) set(k string, v awkvalue) {
 	env[k] = v
 }
 
+type outprogam struct {
+	stdin  chan string
+	errors chan error
+}
+
+type outprograms struct {
+	progs map[string]outprogam
+	wg    sync.WaitGroup
+}
+
+func newOutPrograms() outprograms {
+	return outprograms{
+		progs: map[string]outprogam{},
+	}
+}
+
+func (op outprograms) get(name string) chan string {
+	prog, ok := op.progs[name]
+	if ok {
+		return prog.stdin
+	}
+	cmd := exec.Command("sh", "-c", name)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		log.Fatal(err)
+	}
+	prog = outprogam{}
+	prog.stdin = make(chan string)
+	prog.errors = make(chan error)
+	op.wg.Add(1)
+	go func() {
+		for str := range prog.stdin {
+			io.WriteString(stdin, str)
+		}
+		if err := stdin.Close(); err != nil {
+			prog.errors <- err
+		}
+		if err := cmd.Wait(); err != nil {
+			prog.errors <- err
+		}
+		close(prog.errors)
+		op.wg.Done()
+	}()
+	op.progs[name] = prog
+	return prog.stdin
+}
+
+func (op outprograms) close(name string) int {
+	prog, ok := op.progs[name]
+	if !ok {
+		return 1
+	}
+	close(prog.stdin)
+	success := 0
+	for err := range prog.errors {
+		if err != nil {
+			success = 1
+		}
+	}
+	delete(op.progs, name)
+	return success
+}
+
+func (op outprograms) closeAll() {
+	for name, _ := range op.progs {
+		op.close(name)
+	}
+	op.wg.Wait()
+}
+
 type interpreter struct {
-	env      environment
-	builtins map[string]awkvalue
-	fields   []awkvalue
+	env         environment
+	builtins    map[string]awkvalue
+	fields      []awkvalue
+	stdoutchan  chan string
+	outprograms outprograms
 }
 
 func (inter *interpreter) execute(stat parser.Stat) error {
@@ -92,8 +172,21 @@ func (inter *interpreter) executeExprStat(es parser.ExprStat) error {
 }
 
 func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
+	outchan := inter.stdoutchan
+	if ps.File != nil {
+		file, err := inter.eval(ps.File)
+		if err != nil {
+			return err
+		}
+		filestr := inter.toGoString(file)
+		switch ps.RedirOp.Type {
+		case lexer.Pipe:
+			outchan = inter.outprograms.get(filestr)
+		}
+	}
+	var res strings.Builder
 	if ps.Exprs == nil {
-		inter.printValue(inter.getField(0))
+		fmt.Fprintf(&res, "%s", inter.toGoString(inter.getField(0)))
 	} else {
 		sep := ""
 		for _, expr := range ps.Exprs {
@@ -105,12 +198,12 @@ func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
 			if isarr {
 				return inter.runtimeError(ps.Print, "cannot print array")
 			}
-			fmt.Print(sep)
-			inter.printValue(v)
+			fmt.Fprintf(&res, "%s%s", sep, inter.toGoString(v))
 			sep = inter.toGoString(inter.builtins["OFS"])
 		}
 	}
-	fmt.Print(inter.toGoString(inter.builtins["ORS"]))
+	fmt.Fprintf(&res, "%s", inter.toGoString(inter.builtins["ORS"]))
+	outchan <- res.String()
 	return nil
 }
 
@@ -156,15 +249,6 @@ func (inter *interpreter) executeForStat(fs parser.ForStat) error {
 		}
 	}
 	return nil
-}
-
-func (inter *interpreter) printValue(v awkvalue) {
-	switch vv := v.(type) {
-	case awknumber:
-		fmt.Print(vv)
-	case awkstring:
-		fmt.Print(inter.toGoString(v))
-	}
 }
 
 func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
@@ -624,9 +708,13 @@ func (inter *interpreter) setField(i int, v awkvalue) {
 		inter.fields[0] = awknumericstring(str)
 		inter.fields = inter.fields[0:1]
 		restr := inter.toGoString(inter.getVariable("FS"))
-		if restr == " " {
-			restr = "\\s+"
-			str = strings.TrimSpace(str)
+		if len(restr) == 1 {
+			if restr == " " {
+				restr = "\\s+"
+				str = strings.TrimSpace(str)
+			} else {
+				restr = "[" + restr + "]"
+			}
 		}
 		re := regexp.MustCompile(restr)
 		for _, split := range re.Split(str, -1) {
@@ -679,6 +767,22 @@ func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
 	return nil
 }
 
+func (inter *interpreter) initialize() {
+	inter.env = environment{}
+	inter.initBuiltInVars()
+	inter.stdoutchan = make(chan string)
+	go func() {
+		for str := range inter.stdoutchan {
+			fmt.Print(str)
+		}
+	}()
+	inter.outprograms = newOutPrograms()
+}
+
+func (inter *interpreter) cleanup() {
+	inter.outprograms.closeAll()
+}
+
 func (inter *interpreter) runtimeError(tok lexer.Token, msg string) error {
 	return fmt.Errorf("%s: at line %d (%s): %s", os.Args[0], tok.Line, tok.Lexeme, msg)
 }
@@ -724,9 +828,8 @@ func specialFilter(item parser.Item, ttype lexer.TokenType) bool {
 
 func Run(items []parser.Item) error {
 	var inter interpreter
-	inter.env = environment{}
 
-	inter.initBuiltInVars()
+	inter.initialize()
 
 	items, begins := filterItems(items, func(item parser.Item) bool {
 		return specialFilter(item, lexer.Begin)
@@ -786,5 +889,8 @@ func Run(items []parser.Item) error {
 			return err
 		}
 	}
+
+	inter.cleanup()
+
 	return nil
 }
