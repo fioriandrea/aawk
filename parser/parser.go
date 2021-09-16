@@ -363,7 +363,7 @@ func (ps *parser) printStat() (PrintStat, error) {
 	ps.eat(lexer.Print, lexer.Printf)
 	op := ps.previous
 	paren := ps.eat(lexer.LeftParen)
-	exprs, err := ps.exprListUntil(lexer.Pipe, lexer.Greater, lexer.DoubleGreater)
+	exprs, err := ps.exprListUntil(ps.concatExpr, lexer.Pipe, lexer.Greater, lexer.DoubleGreater)
 	if err != nil {
 		return PrintStat{}, err
 	}
@@ -543,23 +543,23 @@ func (ps *parser) forStat() (ForStat, error) {
 	}, nil
 }
 
-func (ps *parser) exprListUntil(types ...lexer.TokenType) ([]Expr, error) {
+func (ps *parser) exprListUntil(exprfn func() (Expr, error), types ...lexer.TokenType) ([]Expr, error) {
 	if ps.checkTerminator() || ps.check(types...) {
 		return nil, nil
 	}
-	exprs, err := ps.exprList()
+	exprs, err := ps.exprList(exprfn)
 	return exprs, err
 }
 
-func (ps *parser) exprList() ([]Expr, error) {
+func (ps *parser) exprList(exprfn func() (Expr, error)) ([]Expr, error) {
 	exprs := make([]Expr, 0)
-	expr, err := ps.expr()
+	expr, err := exprfn()
 	if err != nil {
 		return nil, err
 	}
 	exprs = append(exprs, expr)
 	for ps.eat(lexer.Comma) {
-		expr, err := ps.expr()
+		expr, err := exprfn()
 		if err != nil {
 			return nil, err
 		}
@@ -934,7 +934,7 @@ func (ps *parser) sprintfExpr() (Expr, error) {
 	if !ps.eat(lexer.LeftParen) {
 		return nil, ps.parseErrorAtCurrent("expected '(' after 'sprintf'")
 	}
-	exprs, err := ps.exprList()
+	exprs, err := ps.exprList(ps.expr)
 	if err != nil {
 		return nil, err
 	}
@@ -963,7 +963,7 @@ func (ps *parser) groupingExpr() (Expr, error) {
 }
 
 func (ps *parser) insideIndexing(id lexer.Token) (Expr, error) {
-	exprs, err := ps.exprList()
+	exprs, err := ps.exprList(ps.expr)
 	if err != nil {
 		return nil, err
 	}

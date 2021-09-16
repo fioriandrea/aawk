@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/fioriandrea/aawk/lexer"
 	"github.com/fioriandrea/aawk/parser"
@@ -57,34 +56,31 @@ func (env environment) set(k string, v awkvalue) {
 	env[k] = v
 }
 
-type outfile struct {
-	stdin       chan string
-	closeErrors chan error
+type outcommand struct {
+	inchan    chan<- []byte
+	writechan <-chan func() (int, error)
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
 }
 
-func newOutFile() outfile {
-	return outfile{
-		stdin:       make(chan string),
-		closeErrors: make(chan error),
+func (c outcommand) Write(p []byte) (int, error) {
+	c.inchan <- p
+	n, err := (<-c.writechan)()
+	return n, err
+}
+
+func (c outcommand) Close() error {
+	close(c.inchan)
+	if err := c.stdin.Close(); err != nil {
+		return err
 	}
-}
-
-type outprograms struct {
-	progs map[string]outfile
-	wg    sync.WaitGroup
-}
-
-func newOutPrograms() outprograms {
-	return outprograms{
-		progs: map[string]outfile{},
+	if err := c.cmd.Wait(); err != nil {
+		return err
 	}
+	return nil
 }
 
-func (op outprograms) get(name string) chan string {
-	prog, ok := op.progs[name]
-	if ok {
-		return prog.stdin
-	}
+func spawnProgram(name string) io.WriteCloser {
 	cmd := exec.Command("sh", "-c", name)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -95,99 +91,72 @@ func (op outprograms) get(name string) chan string {
 	if err := cmd.Start(); err != nil {
 		log.Fatal(err)
 	}
-	prog = newOutFile()
-	op.wg.Add(1)
+	inchan := make(chan []byte)
+	writechan := make(chan func() (int, error))
+	res := outcommand{
+		inchan:    inchan,
+		writechan: writechan,
+		stdin:     stdin,
+		cmd:       cmd,
+	}
 	go func() {
-		for str := range prog.stdin {
-			io.WriteString(stdin, str)
+		for b := range inchan {
+			n, err := stdin.Write(b)
+			writechan <- func() (int, error) { return n, err }
 		}
-		if err := stdin.Close(); err != nil {
-			prog.closeErrors <- err
-		}
-		if err := cmd.Wait(); err != nil {
-			prog.closeErrors <- err
-		}
-		close(prog.closeErrors)
-		op.wg.Done()
+		close(writechan)
 	}()
-	op.progs[name] = prog
-	return prog.stdin
+	return res
 }
 
-func closeOutfile(of outfile) int {
-	close(of.stdin)
-	success := 0
-	for err := range of.closeErrors {
-		if err != nil {
-			success = 1
-		}
-	}
-	return success
-}
-
-func closeOutfileInMap(m map[string]outfile, name string) int {
-	of, ok := m[name]
-	if !ok {
-		return 1
-	}
-	delete(m, name)
-	return closeOutfile(of)
-}
-
-func (op outprograms) close(name string) int {
-	return closeOutfileInMap(op.progs, name)
-}
-
-func (op outprograms) closeAll() {
-	for name, _ := range op.progs {
-		op.close(name)
-	}
-	op.wg.Wait()
-}
-
-type outfiles map[string]outfile
-
-func (of outfiles) get(name string, mode int) chan string {
-	res, ok := of[name]
-	if ok {
-		return res.stdin
-	}
+func spawnFile(name string, mode int) io.WriteCloser {
 	f, err := os.OpenFile(name, os.O_APPEND|os.O_CREATE|os.O_WRONLY|mode, 0600)
 	if err != nil {
 		log.Fatal(err)
 	}
-	res.stdin = make(chan string)
-	go func() {
-		for str := range res.stdin {
-			if _, err = f.WriteString(str); err != nil {
-				fmt.Fprintln(os.Stderr, err)
-			}
-		}
-		res.closeErrors <- f.Close()
-		close(res.closeErrors)
-	}()
-	return res.stdin
+	return f
 }
 
-func (of outfiles) getOverwrite(name string) chan string {
-	return of.get(name, 0)
+func spawnFileAppend(name string) io.WriteCloser {
+	return spawnFile(name, os.O_APPEND)
 }
 
-func (of outfiles) getAppend(name string) chan string {
-	return of.get(name, os.O_APPEND)
+func spawnFileNormal(name string) io.WriteCloser {
+	return spawnFile(name, 0)
 }
 
-func (of outfiles) close(name string) int {
-	return closeOutfileInMap(map[string]outfile(of), name)
+type outwriters map[string]io.WriteCloser
+
+func (ow outwriters) get(name string, spawner func(string) io.WriteCloser) io.WriteCloser {
+	wc, ok := ow[name]
+	if ok {
+		return wc
+	}
+	ow[name] = spawner(name)
+	return ow[name]
+}
+
+func (ow outwriters) close(name string) error {
+	wc, ok := ow[name]
+	if !ok {
+		return nil
+	}
+	delete(ow, name)
+	return wc.Close()
+}
+
+func (ow outwriters) closeAll() {
+	for name, _ := range ow {
+		ow.close(name)
+	}
 }
 
 type interpreter struct {
 	env         environment
 	builtins    map[string]awkvalue
 	fields      []awkvalue
-	stdoutchan  chan string
-	outprograms outprograms
-	outfiles    outfiles
+	outprograms outwriters
+	outfiles    outwriters
 }
 
 func (inter *interpreter) execute(stat parser.Stat) error {
@@ -222,7 +191,8 @@ func (inter *interpreter) executeExprStat(es parser.ExprStat) error {
 }
 
 func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
-	outchan := inter.stdoutchan
+	var w io.Writer
+	w = os.Stdout
 	if ps.File != nil {
 		file, err := inter.eval(ps.File)
 		if err != nil {
@@ -231,26 +201,25 @@ func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
 		filestr := inter.toGoString(file)
 		switch ps.RedirOp.Type {
 		case lexer.Pipe:
-			outchan = inter.outprograms.get(filestr)
+			w = inter.outprograms.get(filestr, spawnProgram)
 		case lexer.Greater:
-			outchan = inter.outfiles.getOverwrite(filestr)
+			w = inter.outfiles.get(filestr, spawnFileNormal)
 		case lexer.DoubleGreater:
-			outchan = inter.outfiles.getAppend(filestr)
+			w = inter.outfiles.get(filestr, spawnFileAppend)
 		}
 	}
 	switch ps.Print.Type {
 	case lexer.Print:
-		return inter.executeSimplePrintStat(outchan, ps)
+		return inter.executeSimplePrintStat(w, ps)
 	case lexer.Printf:
-		return inter.executePrintfStat(outchan, ps)
+		return inter.executePrintfStat(w, ps)
 	}
 	return nil
 }
 
-func (inter *interpreter) executeSimplePrintStat(outchan chan string, ps parser.PrintStat) error {
-	var res strings.Builder
+func (inter *interpreter) executeSimplePrintStat(w io.Writer, ps parser.PrintStat) error {
 	if ps.Exprs == nil {
-		fmt.Fprintf(&res, "%s", inter.toGoString(inter.getField(0)))
+		fmt.Fprintf(w, "%s", inter.toGoString(inter.getField(0)))
 	} else {
 		sep := ""
 		for _, expr := range ps.Exprs {
@@ -262,12 +231,11 @@ func (inter *interpreter) executeSimplePrintStat(outchan chan string, ps parser.
 			if isarr {
 				return inter.runtimeError(ps.Print, "cannot print array")
 			}
-			fmt.Fprintf(&res, "%s%s", sep, inter.toGoString(v))
+			fmt.Fprintf(w, "%s%s", sep, inter.toGoString(v))
 			sep = inter.toGoString(inter.builtins["OFS"])
 		}
 	}
-	fmt.Fprintf(&res, "%s", inter.toGoString(inter.builtins["ORS"]))
-	outchan <- res.String()
+	fmt.Fprintf(w, "%s", inter.toGoString(inter.builtins["ORS"]))
 	return nil
 }
 
@@ -314,42 +282,39 @@ func (inter *interpreter) sprintfConversions(print lexer.Token, fmtstr string) (
 	return res, nil
 }
 
-func (inter *interpreter) sprintf(print lexer.Token, exprs []parser.Expr) (string, error) {
+func (inter *interpreter) printf(w io.Writer, print lexer.Token, exprs []parser.Expr) error {
 	format, err := inter.eval(exprs[0])
 	if err != nil {
-		return "", err
+		return err
 	}
 	formatstr := inter.toGoString(format)
 	convs, err := inter.sprintfConversions(print, formatstr)
 	if err != nil {
-		return "", nil
+		return nil
 	}
 	if len(convs) > len(exprs[1:]) {
-		return "", inter.runtimeError(print, "run out of arguments for formatted output")
+		return inter.runtimeError(print, "run out of arguments for formatted output")
 	}
 	args := make([]interface{}, 0)
 	for _, expr := range exprs[1:] {
 		arg, err := inter.eval(expr)
 		if err != nil {
-			return "", err
+			return err
 		}
 		_, isarr := arg.(awkarray)
 		if isarr {
-			return "", inter.runtimeError(print, "cannot print array")
+			return inter.runtimeError(print, "cannot print array")
 		}
 		args = append(args, convs[0](arg))
 		convs = convs[1:]
 	}
-	return fmt.Sprintf(formatstr, args...), nil
+	fmt.Fprintf(w, formatstr, args...)
+	return nil
 }
 
-func (inter *interpreter) executePrintfStat(outchan chan string, ps parser.PrintStat) error {
-	str, err := inter.sprintf(ps.Print, ps.Exprs)
-	if err != nil {
-		return err
-	}
-	outchan <- str
-	return nil
+func (inter *interpreter) executePrintfStat(w io.Writer, ps parser.PrintStat) error {
+	err := inter.printf(w, ps.Print, ps.Exprs)
+	return err
 }
 
 func (inter *interpreter) executeIfStat(ifs parser.IfStat) error {
@@ -546,16 +511,20 @@ func (inter *interpreter) evalClose(ce parser.CloseExpr) (awkvalue, error) {
 	}
 	str := inter.toGoString(file)
 	pr := inter.outprograms.close(str)
-	fi := inter.outfiles.close(str)
-	return awknumber(pr + fi), nil
+	prn := 0
+	if pr != nil {
+		prn = 1
+	}
+	return awknumber(prn), nil
 }
 
 func (inter *interpreter) evalSprintf(spe parser.SprintfExpr) (awkvalue, error) {
-	str, err := inter.sprintf(spe.Sprintf, spe.Exprs)
+	var str strings.Builder
+	err := inter.printf(&str, spe.Sprintf, spe.Exprs)
 	if err != nil {
 		return nil, err
 	}
-	return awknormalstring(str), nil
+	return awknormalstring(str.String()), nil
 }
 
 func (inter *interpreter) evalAnd(bb parser.BinaryBoolExpr) (awkvalue, error) {
@@ -938,13 +907,8 @@ func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
 func (inter *interpreter) initialize() {
 	inter.env = environment{}
 	inter.initBuiltInVars()
-	inter.stdoutchan = make(chan string)
-	go func() {
-		for str := range inter.stdoutchan {
-			fmt.Print(str)
-		}
-	}()
-	inter.outprograms = newOutPrograms()
+	inter.outprograms = outwriters{}
+	inter.outfiles = outwriters{}
 }
 
 func (inter *interpreter) cleanup() {
