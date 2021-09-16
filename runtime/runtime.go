@@ -80,11 +80,6 @@ func newOutPrograms() outprograms {
 	}
 }
 
-func (op outprograms) has(name string) bool {
-	_, ok := op.progs[name]
-	return ok
-}
-
 func (op outprograms) get(name string) chan string {
 	prog, ok := op.progs[name]
 	if ok {
@@ -243,6 +238,16 @@ func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
 			outchan = inter.outfiles.getAppend(filestr)
 		}
 	}
+	switch ps.Print.Type {
+	case lexer.Print:
+		return inter.executeSimplePrintStat(outchan, ps)
+	case lexer.Printf:
+		return inter.executePrintfStat(outchan, ps)
+	}
+	return nil
+}
+
+func (inter *interpreter) executeSimplePrintStat(outchan chan string, ps parser.PrintStat) error {
 	var res strings.Builder
 	if ps.Exprs == nil {
 		fmt.Fprintf(&res, "%s", inter.toGoString(inter.getField(0)))
@@ -263,6 +268,87 @@ func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
 	}
 	fmt.Fprintf(&res, "%s", inter.toGoString(inter.builtins["ORS"]))
 	outchan <- res.String()
+	return nil
+}
+
+func (inter *interpreter) sprintfConversions(print lexer.Token, fmtstr string) ([]func(awkvalue) interface{}, error) {
+	tostr := func(v awkvalue) interface{} {
+		return inter.toGoString(v)
+	}
+	tofloat := func(v awkvalue) interface{} {
+		return inter.toGoFloat(v)
+	}
+	toint := func(v awkvalue) interface{} {
+		return int(inter.toGoFloat(v))
+	}
+	tochar := func(v awkvalue) interface{} {
+		return []rune(inter.toGoString(v))[0]
+	}
+
+	res := make([]func(awkvalue) interface{}, 0)
+	var toappend func(awkvalue) interface{}
+	for i := 0; i < len(fmtstr); i++ {
+		if fmtstr[i] != '%' {
+			continue
+		}
+		i++
+		if i >= len(fmtstr) {
+			return nil, inter.runtimeError(print, "invalid format syntax: expected character after '%'")
+		}
+		switch fmtstr[i] {
+		case '%':
+			continue
+		case 's':
+			toappend = tostr
+		case 'd', 'i', 'o', 'x', 'X':
+			toappend = toint
+		case 'f', 'e', 'E', 'g', 'G':
+			toappend = tofloat
+		case 'c':
+			toappend = tochar
+		default:
+			return nil, inter.runtimeError(print, fmt.Sprintf("invalid format syntax: unknown verb %c", fmtstr[i]))
+		}
+		res = append(res, toappend)
+	}
+	return res, nil
+}
+
+func (inter *interpreter) sprintf(print lexer.Token, exprs []parser.Expr) (string, error) {
+	format, err := inter.eval(exprs[0])
+	if err != nil {
+		return "", err
+	}
+	formatstr := inter.toGoString(format)
+	convs, err := inter.sprintfConversions(print, formatstr)
+	if err != nil {
+		return "", nil
+	}
+	if len(convs) > len(exprs[1:]) {
+		return "", inter.runtimeError(print, "run out of arguments for formatted output")
+	}
+	args := make([]interface{}, 0)
+	for _, expr := range exprs[1:] {
+		arg, err := inter.eval(expr)
+		if err != nil {
+			return "", err
+		}
+		_, isarr := arg.(awkarray)
+		if isarr {
+			return "", inter.runtimeError(print, "cannot print array")
+		}
+		args = append(args, convs[0](arg))
+		convs = convs[1:]
+	}
+	return fmt.Sprintf(formatstr, args...), nil
+}
+
+func (inter *interpreter) executePrintfStat(outchan chan string, ps parser.PrintStat) error {
+	str, err := inter.sprintf(ps.Print, ps.Exprs)
+	if err != nil {
+		return err
+	}
+	outchan <- str
 	return nil
 }
 
@@ -944,7 +1030,10 @@ func Run(items []parser.Item) error {
 					return err
 				}
 				if isTruthy(res) {
-					inter.execute(patact.Action)
+					err := inter.execute(patact.Action)
+					if err != nil {
+						return err
+					}
 				}
 			}
 			inter.builtins["NR"] = inter.toNumber(inter.builtins["NR"]) + 1

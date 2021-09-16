@@ -296,6 +296,7 @@ func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, error) {
 		if err != nil {
 			errtoret = err
 			fmt.Fprintln(os.Stderr, err)
+			ps.advance()
 			continue
 		}
 		stats = append(stats, stat)
@@ -335,6 +336,8 @@ func (ps *parser) simpleStat() (Stat, error) {
 	var err error
 	switch ps.current.Type {
 	case lexer.Print:
+		fallthrough
+	case lexer.Printf:
 		stat, err = ps.printStat()
 	default:
 		stat, err = ps.exprStat()
@@ -351,11 +354,15 @@ func (ps *parser) exprStat() (ExprStat, error) {
 }
 
 func (ps *parser) printStat() (PrintStat, error) {
-	ps.eat(lexer.Print)
+	ps.eat(lexer.Print, lexer.Printf)
 	op := ps.previous
+	paren := ps.eat(lexer.LeftParen)
 	exprs, err := ps.exprListUntil(lexer.Pipe, lexer.Greater, lexer.DoubleGreater)
 	if err != nil {
 		return PrintStat{}, err
+	}
+	if paren && !ps.eat(lexer.RightParen) {
+		return PrintStat{}, ps.parseErrorAtCurrent("expected closing ')' for print statement")
 	}
 	var redir lexer.Token
 	var file Expr
@@ -368,6 +375,9 @@ func (ps *parser) printStat() (PrintStat, error) {
 		if file == nil {
 			return PrintStat{}, ps.parseErrorAt(redir, "expected expression after redirection operator")
 		}
+	}
+	if op.Type == lexer.Printf && len(exprs) == 0 {
+		return PrintStat{}, ps.parseErrorAt(op, "'printf' requires at least one argument")
 	}
 	return PrintStat{
 		Print:   op,
