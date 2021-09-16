@@ -186,6 +186,7 @@ type parser struct {
 	lexer    lexer.Lexer
 	current  lexer.Token
 	previous lexer.Token
+	inprint  bool
 }
 
 func GetSyntaxTree(lexer lexer.Lexer) ([]Item, error) {
@@ -202,6 +203,7 @@ func GetSyntaxTree(lexer lexer.Lexer) ([]Item, error) {
 
 func (ps *parser) itemList() ([]Item, error) {
 	items := make([]Item, 0)
+	ps.skipNewLines()
 	for ps.current.Type != lexer.Eof {
 		item, err := ps.item()
 		if err != nil {
@@ -255,6 +257,7 @@ func (ps *parser) item() (Item, error) {
 			}
 		}
 	}
+	ps.eatTerminator()
 	return PatternAction{Pattern: pat, Action: act}, nil
 }
 
@@ -280,9 +283,7 @@ func (ps *parser) pattern() (Pattern, error) {
 }
 
 func (ps *parser) blockStat() (BlockStat, error) {
-	if !ps.eat(lexer.LeftCurly) {
-		return nil, ps.parseErrorAtCurrent("expected '{'")
-	}
+	ps.eat(lexer.LeftCurly)
 	ret, err := ps.statListUntil(lexer.RightCurly)
 	if err != nil {
 		return nil, err
@@ -294,10 +295,10 @@ func (ps *parser) blockStat() (BlockStat, error) {
 }
 
 func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, error) {
+	ps.skipNewLines()
 	stats := make([]Stat, 0)
 	var errtoret error = nil
-	for ps.current.Type != lexer.Eof {
-		ps.skipNewLines()
+	for ps.current.Type != lexer.Eof && !ps.check(types...) {
 		stat, err := ps.stat()
 		if err != nil {
 			errtoret = err
@@ -306,10 +307,6 @@ func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, error) {
 			continue
 		}
 		stats = append(stats, stat)
-		ps.skipNewLines()
-		if ps.check(types...) {
-			break
-		}
 	}
 	return stats, errtoret
 }
@@ -328,12 +325,15 @@ func (ps *parser) stat() (Stat, error) {
 		stat, err = ps.forStat()
 	case lexer.LeftCurly:
 		stat, err = ps.blockStat()
+	case lexer.Semicolon:
+		fallthrough
+	case lexer.Newline:
+		ps.advance()
+		stat, err = nil, nil
 	default:
 		stat, err = ps.simpleStat()
-		if !ps.eatTerminator() && err == nil {
-			stat, err = nil, ps.parseErrorAtCurrent("expected terminator")
-		}
 	}
+	ps.skipNewLines()
 	return stat, err
 }
 
@@ -360,10 +360,13 @@ func (ps *parser) exprStat() (ExprStat, error) {
 }
 
 func (ps *parser) printStat() (PrintStat, error) {
+	ps.inprint = true
+	defer func() { ps.inprint = false }()
+
 	ps.eat(lexer.Print, lexer.Printf)
 	op := ps.previous
 	paren := ps.eat(lexer.LeftParen)
-	exprs, err := ps.exprListUntil(ps.concatExpr, lexer.Pipe, lexer.Greater, lexer.DoubleGreater)
+	exprs, err := ps.exprListEmpty()
 	if err != nil {
 		return PrintStat{}, err
 	}
@@ -374,7 +377,7 @@ func (ps *parser) printStat() (PrintStat, error) {
 	var file Expr
 	if ps.eat(lexer.Pipe, lexer.Greater, lexer.DoubleGreater) {
 		redir = ps.previous
-		file, err = ps.expr()
+		file, err = ps.concatExpr()
 		if err != nil {
 			return PrintStat{}, err
 		}
@@ -543,29 +546,40 @@ func (ps *parser) forStat() (ForStat, error) {
 	}, nil
 }
 
-func (ps *parser) exprListUntil(exprfn func() (Expr, error), types ...lexer.TokenType) ([]Expr, error) {
-	if ps.checkTerminator() || ps.check(types...) {
+func (ps *parser) exprListEmpty() ([]Expr, error) {
+	if ps.checkEndOfExprList() {
 		return nil, nil
 	}
-	exprs, err := ps.exprList(exprfn)
+	exprs, err := ps.exprList()
 	return exprs, err
 }
 
-func (ps *parser) exprList(exprfn func() (Expr, error)) ([]Expr, error) {
+func (ps *parser) exprList() ([]Expr, error) {
 	exprs := make([]Expr, 0)
-	expr, err := exprfn()
+	expr, err := ps.expr()
 	if err != nil {
 		return nil, err
 	}
 	exprs = append(exprs, expr)
-	for ps.eat(lexer.Comma) {
-		expr, err := exprfn()
+
+	for !ps.checkEndOfExprList() {
+		if !ps.eat(lexer.Comma) {
+			return nil, ps.parseErrorAtCurrent("expected ','")
+		}
+		ps.skipNewLines()
+		expr, err := ps.expr()
 		if err != nil {
 			return nil, err
 		}
 		exprs = append(exprs, expr)
 	}
 	return exprs, nil
+}
+
+func (ps *parser) checkEndOfExprList() bool {
+	// stop at rightcurly (e.g. {print "a"}), rightparen (end of func args), pipe , doublegreater and greater (redir)
+	// cannot just check for comma presence because {print "a" print "b"} would pass
+	return ps.checkTerminator() || ps.check(lexer.RightCurly, lexer.RightParen, lexer.RightSquare, lexer.Pipe, lexer.DoubleGreater, lexer.Greater)
 }
 
 func (ps *parser) expr() (Expr, error) {
@@ -690,7 +704,7 @@ func (ps *parser) comparisonExpr() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ps.eat(lexer.Equal, lexer.NotEqual, lexer.Less, lexer.LessEqual, lexer.Greater, lexer.GreaterEqual) {
+	if ps.eat(lexer.Equal, lexer.NotEqual, lexer.Less, lexer.LessEqual, lexer.GreaterEqual) || (!ps.inprint && ps.eat(lexer.Greater)) {
 		op := ps.previous
 		right, err := ps.concatExpr()
 		if err != nil {
@@ -934,7 +948,7 @@ func (ps *parser) sprintfExpr() (Expr, error) {
 	if !ps.eat(lexer.LeftParen) {
 		return nil, ps.parseErrorAtCurrent("expected '(' after 'sprintf'")
 	}
-	exprs, err := ps.exprList(ps.expr)
+	exprs, err := ps.exprList()
 	if err != nil {
 		return nil, err
 	}
@@ -963,7 +977,7 @@ func (ps *parser) groupingExpr() (Expr, error) {
 }
 
 func (ps *parser) insideIndexing(id lexer.Token) (Expr, error) {
-	exprs, err := ps.exprList(ps.expr)
+	exprs, err := ps.exprList()
 	if err != nil {
 		return nil, err
 	}
