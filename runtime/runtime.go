@@ -57,20 +57,16 @@ func (env environment) set(k string, v awkvalue) {
 }
 
 type outcommand struct {
-	inchan    chan<- []byte
-	writechan <-chan func() (int, error)
-	cmd       *exec.Cmd
-	stdin     io.WriteCloser
+	cmd   *exec.Cmd
+	stdin io.WriteCloser
 }
 
 func (c outcommand) Write(p []byte) (int, error) {
-	c.inchan <- p
-	n, err := (<-c.writechan)()
+	n, err := c.stdin.Write(p)
 	return n, err
 }
 
 func (c outcommand) Close() error {
-	close(c.inchan)
 	if err := c.stdin.Close(); err != nil {
 		return err
 	}
@@ -91,21 +87,10 @@ func spawnProgram(name string) io.WriteCloser {
 	if err := cmd.Start(); err != nil {
 		log.Fatal(err)
 	}
-	inchan := make(chan []byte)
-	writechan := make(chan func() (int, error))
 	res := outcommand{
-		inchan:    inchan,
-		writechan: writechan,
-		stdin:     stdin,
-		cmd:       cmd,
+		stdin: stdin,
+		cmd:   cmd,
 	}
-	go func() {
-		for b := range inchan {
-			n, err := stdin.Write(b)
-			writechan <- func() (int, error) { return n, err }
-		}
-		close(writechan)
-	}()
 	return res
 }
 
@@ -239,7 +224,7 @@ func (inter *interpreter) executeSimplePrintStat(w io.Writer, ps parser.PrintSta
 	return nil
 }
 
-func (inter *interpreter) sprintfConversions(print lexer.Token, fmtstr string) ([]func(awkvalue) interface{}, error) {
+func (inter *interpreter) fprintfConversions(print lexer.Token, fmtstr string) ([]func(awkvalue) interface{}, error) {
 	tostr := func(v awkvalue) interface{} {
 		return inter.toGoString(v)
 	}
@@ -282,13 +267,13 @@ func (inter *interpreter) sprintfConversions(print lexer.Token, fmtstr string) (
 	return res, nil
 }
 
-func (inter *interpreter) printf(w io.Writer, print lexer.Token, exprs []parser.Expr) error {
+func (inter *interpreter) fprintf(w io.Writer, print lexer.Token, exprs []parser.Expr) error {
 	format, err := inter.eval(exprs[0])
 	if err != nil {
 		return err
 	}
 	formatstr := inter.toGoString(format)
-	convs, err := inter.sprintfConversions(print, formatstr)
+	convs, err := inter.fprintfConversions(print, formatstr)
 	if err != nil {
 		return nil
 	}
@@ -313,7 +298,7 @@ func (inter *interpreter) printf(w io.Writer, print lexer.Token, exprs []parser.
 }
 
 func (inter *interpreter) executePrintfStat(w io.Writer, ps parser.PrintStat) error {
-	err := inter.printf(w, ps.Print, ps.Exprs)
+	err := inter.fprintf(w, ps.Print, ps.Exprs)
 	return err
 }
 
@@ -520,7 +505,7 @@ func (inter *interpreter) evalClose(ce parser.CloseExpr) (awkvalue, error) {
 
 func (inter *interpreter) evalSprintf(spe parser.SprintfExpr) (awkvalue, error) {
 	var str strings.Builder
-	err := inter.printf(&str, spe.Sprintf, spe.Exprs)
+	err := inter.fprintf(&str, spe.Sprintf, spe.Exprs)
 	if err != nil {
 		return nil, err
 	}
