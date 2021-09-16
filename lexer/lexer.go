@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -357,8 +358,8 @@ func (l *Lexer) string() Token {
 	if l.currentRune != '"' {
 		return l.makeErrorToken("unterminated string")
 	}
-
-	return l.makeTokenFromBuilder(String, lexeme)
+	resstr, _ := strconv.Unquote(`"` + lexeme.String() + `"`)
+	return l.makeToken(String, resstr)
 }
 
 func (l *Lexer) identifier() Token {

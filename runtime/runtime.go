@@ -775,7 +775,6 @@ func (inter *interpreter) toGoString(v awkvalue) string {
 	case awknumericstring:
 		res = string(sub)
 	}
-	res, _ = strconv.Unquote(fmt.Sprintf("\"%s\"", res))
 	return res
 }
 
@@ -823,8 +822,8 @@ func (inter *interpreter) setField(i int, v awkvalue) {
 	} else if i >= len(inter.fields) {
 		for i >= len(inter.fields) {
 			inter.fields = append(inter.fields, nil)
-			inter.setField(i, v)
 		}
+		inter.setField(i, v)
 	} else if i == 0 {
 		str := inter.toGoString(v)
 		inter.fields[0] = awknumericstring(str)
@@ -874,8 +873,8 @@ func (inter *interpreter) initBuiltInVars() {
 		"NF":      nil,
 		"NR":      nil,
 		"OFS":     awknormalstring(" "),
-		"ORS":     awknormalstring("\\n"),
-		"SUBSEP":  awknormalstring("\\034"),
+		"ORS":     awknormalstring("\n"),
+		"SUBSEP":  awknormalstring("\034"),
 	}
 }
 
@@ -943,7 +942,7 @@ func specialFilter(item parser.Item, ttype lexer.TokenType) bool {
 	return true
 }
 
-func Run(items []parser.Item) error {
+func Run(items []parser.Item, paths []string) error {
 	var inter interpreter
 
 	inter.initialize()
@@ -975,31 +974,9 @@ func Run(items []parser.Item) error {
 		}
 	}
 
-	if len(normals) > 0 {
-		scanner := bufio.NewScanner(os.Stdin) // TODO: use RS
-		inter.builtins["NR"] = awknumber(1)
-		for scanner.Scan() {
-			text := scanner.Text()
-			inter.processInputRecord(text)
-			for _, normal := range normals {
-				patact := normal.(parser.PatternAction)
-				pat := patact.Pattern.(parser.ExprPattern)
-				res, err := inter.eval(pat.Expr)
-				if err != nil {
-					return err
-				}
-				if isTruthy(res) {
-					err := inter.execute(patact.Action)
-					if err != nil {
-						return err
-					}
-				}
-			}
-			inter.builtins["NR"] = inter.toNumber(inter.builtins["NR"]) + 1
-		}
-		if err := scanner.Err(); err != nil {
-			log.Fatal(err)
-		}
+	err := inter.processNormals(normals, paths)
+	if err != nil {
+		return err
 	}
 
 	for _, end := range ends {
@@ -1012,5 +989,61 @@ func Run(items []parser.Item) error {
 
 	inter.cleanup()
 
+	return nil
+}
+
+func (inter *interpreter) processNormals(normals []parser.Item, paths []string) error {
+	if len(normals) == 0 {
+		return nil
+	}
+	if len(paths) == 0 {
+		err := inter.processFile(normals, os.Stdin)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+	for _, path := range paths {
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		err = inter.processFile(normals, file)
+		if err != nil {
+			return err
+		}
+		err = file.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (inter *interpreter) processFile(normals []parser.Item, f *os.File) error {
+	scanner := bufio.NewScanner(f) // TODO: use RS
+	inter.builtins["NR"] = awknumber(1)
+	for scanner.Scan() {
+		text := scanner.Text()
+		inter.processInputRecord(text)
+		for _, normal := range normals {
+			patact := normal.(parser.PatternAction)
+			pat := patact.Pattern.(parser.ExprPattern)
+			res, err := inter.eval(pat.Expr)
+			if err != nil {
+				return err
+			}
+			if isTruthy(res) {
+				err := inter.execute(patact.Action)
+				if err != nil {
+					return err
+				}
+			}
+		}
+		inter.builtins["NR"] = inter.toNumber(inter.builtins["NR"]) + 1
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
 	return nil
 }
