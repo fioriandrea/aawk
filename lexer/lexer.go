@@ -73,6 +73,7 @@ const (
 	Print
 	Printf
 	Return
+	Sprintf
 	While
 
 	Identifier
@@ -106,6 +107,7 @@ var keywords = map[string]TokenType{
 	"printf":   Printf,
 	"print":    Print,
 	"return":   Return,
+	"sprintf":  Sprintf,
 	"while":    While,
 }
 

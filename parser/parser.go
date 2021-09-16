@@ -107,6 +107,12 @@ type CloseExpr struct {
 	Expr
 }
 
+type SprintfExpr struct {
+	Sprintf lexer.Token
+	Exprs   []Expr
+	Expr
+}
+
 type Stat interface {
 	isStat()
 	Node
@@ -889,6 +895,8 @@ func (ps *parser) termExpr() (Expr, error) {
 		}
 	case lexer.Close:
 		sub, err = ps.closeExpr()
+	case lexer.Sprintf:
+		sub, err = ps.sprintfExpr()
 	case lexer.Error:
 		sub, err = nil, ps.parseErrorAtCurrent("")
 		ps.advance()
@@ -917,6 +925,25 @@ func (ps *parser) closeExpr() (Expr, error) {
 	return CloseExpr{
 		Close: op,
 		File:  file,
+	}, nil
+}
+
+func (ps *parser) sprintfExpr() (Expr, error) {
+	ps.eat(lexer.Sprintf)
+	op := ps.previous
+	if !ps.eat(lexer.LeftParen) {
+		return nil, ps.parseErrorAtCurrent("expected '(' after 'sprintf'")
+	}
+	exprs, err := ps.exprList()
+	if err != nil {
+		return nil, err
+	}
+	if !ps.eat(lexer.RightParen) {
+		return nil, ps.parseErrorAtCurrent("expected ')' after argument list of 'sprintf'")
+	}
+	return SprintfExpr{
+		Sprintf: op,
+		Exprs:   exprs,
 	}, nil
 }
 

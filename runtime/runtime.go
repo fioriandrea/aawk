@@ -428,6 +428,8 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 		val, err = inter.evalDollar(v)
 	case parser.CloseExpr:
 		val, err = inter.evalClose(v)
+	case parser.SprintfExpr:
+		val, err = inter.evalSprintf(v)
 	}
 	return val, err
 }
@@ -546,6 +548,14 @@ func (inter *interpreter) evalClose(ce parser.CloseExpr) (awkvalue, error) {
 	pr := inter.outprograms.close(str)
 	fi := inter.outfiles.close(str)
 	return awknumber(pr + fi), nil
+}
+
+func (inter *interpreter) evalSprintf(spe parser.SprintfExpr) (awkvalue, error) {
+	str, err := inter.sprintf(spe.Sprintf, spe.Exprs)
+	if err != nil {
+		return nil, err
+	}
+	return awknormalstring(str), nil
 }
 
 func (inter *interpreter) evalAnd(bb parser.BinaryBoolExpr) (awkvalue, error) {
