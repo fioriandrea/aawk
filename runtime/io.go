@@ -90,7 +90,7 @@ func (st streams) close(name string) error {
 }
 
 func (st streams) closeAll() {
-	for name, _ := range st {
+	for name := range st {
 		st.close(name)
 	}
 }
@@ -176,6 +176,32 @@ func spawnInProgram(name string) RuneReadCloser {
 		cmd:    cmd,
 	}
 	return res
+}
+
+type infile struct {
+	reader *bufio.Reader
+	file   *os.File
+}
+
+func (inf infile) ReadRune() (rune, int, error) {
+	r, size, err := inf.reader.ReadRune()
+	return r, size, err
+}
+
+func (inf infile) Close() error {
+	return inf.file.Close()
+}
+
+func spawnInFile(name string) RuneReadCloser {
+	file, err := os.Open(name)
+	if err != nil {
+		log.Fatal(err)
+	}
+	reader := bufio.NewReader(file)
+	return infile{
+		reader: reader,
+		file:   file,
+	}
 }
 
 func nextRecord(reader io.RuneReader, delim rune) (string, error) {

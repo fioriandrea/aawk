@@ -191,10 +191,11 @@ type ExprPattern struct {
 }
 
 type parser struct {
-	lexer    lexer.Lexer
-	current  lexer.Token
-	previous lexer.Token
-	inprint  bool
+	lexer     lexer.Lexer
+	current   lexer.Token
+	previous  lexer.Token
+	inprint   bool
+	ingetline bool
 }
 
 func GetSyntaxTree(lexer lexer.Lexer) ([]Item, error) {
@@ -610,7 +611,7 @@ func (ps *parser) pipeGetlineExpr() (Expr, error) {
 		}
 		getline := ps.previous
 		var variable LhsExpr
-		if ps.check(lexer.Identifier) {
+		if ps.checkBeginLhs() {
 			varexpr, err := ps.expr()
 			if err != nil {
 				return nil, err
@@ -748,7 +749,7 @@ func (ps *parser) comparisonExpr() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ps.eat(lexer.Equal, lexer.NotEqual, lexer.Less, lexer.LessEqual, lexer.GreaterEqual) || (!ps.inprint && ps.eat(lexer.Greater)) {
+	if !ps.ingetline && (ps.eat(lexer.Equal, lexer.NotEqual, lexer.LessEqual, lexer.GreaterEqual) || (!ps.inprint && ps.eat(lexer.Greater))) {
 		op := ps.previous
 		right, err := ps.concatExpr()
 		if err != nil {
@@ -955,6 +956,8 @@ func (ps *parser) termExpr() (Expr, error) {
 		sub, err = ps.closeExpr()
 	case lexer.Sprintf:
 		sub, err = ps.sprintfExpr()
+	case lexer.Getline:
+		sub, err = ps.getlineExpr()
 	case lexer.Error:
 		sub, err = nil, ps.parseErrorAtCurrent("")
 		ps.advance()
@@ -965,6 +968,41 @@ func (ps *parser) termExpr() (Expr, error) {
 		}
 	}
 	return sub, err
+}
+
+func (ps *parser) getlineExpr() (Expr, error) {
+	defer func() { ps.ingetline = false }()
+	ps.eat(lexer.Getline)
+	getline := ps.previous
+	var variable LhsExpr
+	if ps.checkBeginLhs() {
+		varexpr, err := ps.expr()
+		if err != nil {
+			return nil, err
+		}
+		var islhs bool
+		variable, islhs = varexpr.(LhsExpr)
+		if !islhs {
+			return nil, ps.parseErrorAt(getline, "cannot assign with getline to non lhs")
+		}
+	}
+	var op lexer.Token
+	var file Expr
+	if ps.eat(lexer.Less) {
+		ps.ingetline = true
+		op = ps.previous
+		var err error
+		file, err = ps.expr()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return GetlineExpr{
+		Op:       op,
+		Getline:  getline,
+		Variable: variable,
+		File:     file,
+	}, nil
 }
 
 func (ps *parser) closeExpr() (Expr, error) {
@@ -1088,4 +1126,8 @@ func (ps *parser) skipNewLines() {
 	for ps.check(lexer.Newline) {
 		ps.advance()
 	}
+}
+
+func (ps *parser) checkBeginLhs() bool {
+	return ps.check(lexer.Dollar, lexer.Identifier)
 }

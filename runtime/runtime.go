@@ -62,6 +62,7 @@ type interpreter struct {
 	outfiles    outwriters
 	currentFile io.RuneReader
 	inprograms  inreaders
+	infiles     inreaders
 }
 
 func (inter *interpreter) execute(stat parser.Stat) error {
@@ -459,6 +460,8 @@ func (inter *interpreter) evalGetline(gl parser.GetlineExpr) (awkvalue, error) {
 	switch gl.Op.Type {
 	case lexer.Pipe:
 		reader = inter.inprograms.get(filestr, spawnInProgram)
+	case lexer.Less:
+		reader = inter.infiles.get(filestr, spawnInFile)
 	default:
 		reader = inter.currentFile
 	}
@@ -875,6 +878,7 @@ func (inter *interpreter) initialize(paths []string) {
 	inter.outprograms = newOutWriters()
 	inter.outfiles = newOutWriters()
 	inter.inprograms = newInReaders()
+	inter.infiles = newInReaders()
 }
 
 func (inter *interpreter) cleanup() {
