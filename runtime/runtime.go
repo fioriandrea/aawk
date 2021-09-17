@@ -879,6 +879,7 @@ func (inter *interpreter) initialize(paths []string) {
 	inter.outfiles = newOutWriters()
 	inter.inprograms = newInReaders()
 	inter.infiles = newInReaders()
+	inter.currentFile = bufio.NewReader(os.Stdin)
 }
 
 func (inter *interpreter) cleanup() {

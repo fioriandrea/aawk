@@ -346,11 +346,16 @@ func (l *Lexer) string() Token {
 	prev := l.currentRune
 	l.advance()
 	for l.currentRune != '\n' && !l.atEnd() {
+		if l.currentRune == '\\' && prev != '\\' {
+			prev = l.currentRune
+			l.advance()
+			continue
+		}
+		prev = l.currentRune
 		if l.currentRune == '"' && prev != '\\' {
 			break
 		}
 		l.currentRuneInside(&lexeme)
-		prev = l.currentRune
 		l.advance()
 	}
 
