@@ -56,25 +56,34 @@ const (
 
 	Newline
 
+	Atan2
 	Begin
 	Break
 	Close
 	Continue
+	Cos
 	Delete
 	Do
 	Else
 	End
 	Exit
+	Exp
 	For
 	Function
 	Getline
 	If
 	In
+	Int
+	Log
 	Next
 	Print
 	Printf
+	Rand
 	Return
+	Sin
 	Sprintf
+	Sqrt
+	Srand
 	While
 
 	Identifier
@@ -90,25 +99,34 @@ const (
 )
 
 var keywords = map[string]TokenType{
+	"atan2":    Atan2,
 	"BEGIN":    Begin,
 	"break":    Break,
 	"close":    Close,
 	"continue": Continue,
+	"cos":      Cos,
 	"delete":   Delete,
 	"do":       Do,
 	"else":     Else,
 	"END":      End,
 	"exit":     Exit,
+	"exp":      Exp,
 	"for":      For,
 	"function": Function,
 	"getline":  Getline,
 	"if":       If,
 	"in":       In,
+	"int":      Int,
+	"log":      Log,
 	"next":     Next,
 	"printf":   Printf,
 	"print":    Print,
+	"rand":     Rand,
 	"return":   Return,
+	"sin":      Sin,
 	"sprintf":  Sprintf,
+	"sqrt":     Sqrt,
+	"srand":    Srand,
 	"while":    While,
 }
 

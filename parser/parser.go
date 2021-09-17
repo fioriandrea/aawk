@@ -940,6 +940,22 @@ func (ps *parser) termExpr() (Expr, error) {
 		fallthrough
 	case lexer.Sprintf:
 		fallthrough
+	case lexer.Sin:
+		fallthrough
+	case lexer.Cos:
+		fallthrough
+	case lexer.Int:
+		fallthrough
+	case lexer.Exp:
+		fallthrough
+	case lexer.Atan2:
+		fallthrough
+	case lexer.Log:
+		fallthrough
+	case lexer.Rand:
+		fallthrough
+	case lexer.Srand:
+		fallthrough
 	case lexer.Identifier:
 		id := ps.current
 		ps.advance()

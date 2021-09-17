@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand"
 	"os"
 	"regexp"
 	"strconv"
@@ -54,6 +55,23 @@ func (env environment) set(k string, v awkvalue) {
 	env[k] = v
 }
 
+type RNG struct {
+	*rand.Rand
+	rngseed int64
+}
+
+func (r *RNG) SetSeed(i int64) {
+	r.rngseed = i
+	r.Seed(i)
+}
+
+func NewRNG(seed int64) RNG {
+	return RNG{
+		Rand:    rand.New(rand.NewSource(seed)),
+		rngseed: seed,
+	}
+}
+
 type interpreter struct {
 	env         environment
 	builtins    map[string]awkvalue
@@ -63,6 +81,7 @@ type interpreter struct {
 	currentFile io.RuneReader
 	inprograms  inreaders
 	infiles     inreaders
+	rng         RNG
 }
 
 func (inter *interpreter) execute(stat parser.Stat) error {
@@ -458,6 +477,24 @@ func (inter *interpreter) evalCall(ce parser.CallExpr) (awkvalue, error) {
 		return inter.evalClose(ce)
 	case lexer.Sprintf:
 		return inter.evalSprintf(ce)
+	case lexer.Sqrt:
+		return inter.evalSqrt(ce)
+	case lexer.Atan2:
+		return inter.evalAtan2(ce)
+	case lexer.Cos:
+		return inter.evalCos(ce)
+	case lexer.Sin:
+		return inter.evalSin(ce)
+	case lexer.Log:
+		return inter.evalLog(ce)
+	case lexer.Exp:
+		return inter.evalExp(ce)
+	case lexer.Rand:
+		return inter.evalRand(ce)
+	case lexer.Srand:
+		return inter.evalSrand(ce)
+	case lexer.Int:
+		return inter.evalInt(ce)
 	}
 	return nil, inter.runtimeError(ce.Called, "cannot call non callable")
 }
@@ -736,9 +773,9 @@ func (inter *interpreter) toGoFloat(v awkvalue) float64 {
 
 func (inter *interpreter) numberToString(n float64) string {
 	if math.Trunc(n) == n {
-		return fmt.Sprintf(inter.toGoString(inter.getVariable("CONVFMT")), n)
-	} else {
 		return fmt.Sprintf("%d", int64(n))
+	} else {
+		return fmt.Sprintf(inter.toGoString(inter.getVariable("CONVFMT")), n)
 	}
 }
 
@@ -856,6 +893,7 @@ func (inter *interpreter) initialize(paths []string) {
 	inter.inprograms = newInReaders()
 	inter.infiles = newInReaders()
 	inter.currentFile = bufio.NewReader(os.Stdin)
+	inter.rng = NewRNG(0)
 }
 
 func (inter *interpreter) cleanup() {
