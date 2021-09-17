@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"strconv"
 	"strings"
 	"unicode"
 )
@@ -361,28 +360,76 @@ func (l *Lexer) newLine() Token {
 
 func (l *Lexer) string() Token {
 	var lexeme strings.Builder
-	prev := l.currentRune
 	l.advance()
+	var c rune
 	for l.currentRune != '\n' && !l.atEnd() {
-		if l.currentRune == '\\' && prev != '\\' {
-			prev = l.currentRune
+		if l.previousRune == '\\' && c != '\\' {
+			switch l.currentRune {
+			case '"':
+				c = '"'
+				l.advance()
+			case '/':
+				c = '/'
+				l.advance()
+			case '\\':
+				c = '\\'
+				l.advance()
+			case 'n':
+				c = '\n'
+				l.advance()
+			case 't':
+				c = '\t'
+				l.advance()
+			case 'r':
+				c = '\r'
+				l.advance()
+			case 'a':
+				c = '\a'
+				l.advance()
+			case 'b':
+				c = '\b'
+				l.advance()
+			case 'f':
+				c = '\f'
+				l.advance()
+			case 'v':
+				c = '\v'
+				l.advance()
+			case '0', '1', '2', '3', '4', '5', '6', '7':
+				cc := l.currentRune
+				seq := int(cc - '0')
+				cc = l.advance()
+				if cc >= '0' && cc <= '7' {
+					seq = seq*8 + int(cc-'0')
+					cc = l.advance()
+					if cc >= '0' && c <= '7' {
+						seq = seq*8 + int(cc-'0')
+						l.advance()
+					}
+				}
+				c = rune(seq)
+
+			default:
+				c = l.currentRune
+				l.advance()
+			}
+		} else if l.currentRune == '\\' {
 			l.advance()
 			continue
-		}
-		prev = l.currentRune
-		if l.currentRune == '"' && prev != '\\' {
+		} else if l.currentRune == '"' {
 			break
+		} else {
+			c = l.currentRune
+			l.advance()
 		}
-		l.currentRuneInside(&lexeme)
-		l.advance()
+		fmt.Fprintf(&lexeme, "%c", c)
 	}
 
-	defer l.advance()
 	if l.currentRune != '"' {
 		return l.makeErrorToken("unterminated string")
 	}
-	resstr, _ := strconv.Unquote(`"` + lexeme.String() + `"`)
-	return l.makeToken(String, resstr)
+	l.advance()
+	return l.makeToken(String, lexeme.String())
 }
 
 func (l *Lexer) identifier() Token {
