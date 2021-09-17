@@ -807,7 +807,7 @@ func (ps *parser) comparisonExpr() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ps.isInGetline() && (ps.eat(lexer.Equal, lexer.NotEqual, lexer.Less, lexer.LessEqual, lexer.GreaterEqual) || (ps.isInPrint() && ps.eat(lexer.Greater))) {
+	if !ps.isInGetline() && (ps.eat(lexer.Equal, lexer.NotEqual, lexer.Less, lexer.LessEqual, lexer.GreaterEqual) || (!ps.isInPrint() && ps.eat(lexer.Greater))) {
 		op := ps.previous
 		right, err := ps.concatExpr()
 		if err != nil {
