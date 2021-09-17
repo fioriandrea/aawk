@@ -101,23 +101,17 @@ type TernaryExpr struct {
 	Expr
 }
 
-type CloseExpr struct {
-	Close lexer.Token
-	File  Expr
-	Expr
-}
-
-type SprintfExpr struct {
-	Sprintf lexer.Token
-	Exprs   []Expr
-	Expr
-}
-
 type GetlineExpr struct {
 	Op       lexer.Token
 	Getline  lexer.Token
 	Variable LhsExpr
 	File     Expr
+	Expr
+}
+
+type CallExpr struct {
+	Called lexer.Token
+	Args   []Expr
 	Expr
 }
 
@@ -749,7 +743,7 @@ func (ps *parser) comparisonExpr() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !ps.ingetline && (ps.eat(lexer.Equal, lexer.NotEqual, lexer.LessEqual, lexer.GreaterEqual) || (!ps.inprint && ps.eat(lexer.Greater))) {
+	if !ps.ingetline && (ps.eat(lexer.Equal, lexer.NotEqual, lexer.Less, lexer.LessEqual, lexer.GreaterEqual) || (!ps.inprint && ps.eat(lexer.Greater))) {
 		op := ps.previous
 		right, err := ps.concatExpr()
 		if err != nil {
@@ -942,20 +936,22 @@ func (ps *parser) termExpr() (Expr, error) {
 		ps.advance()
 	case lexer.LeftParen:
 		sub, err = ps.groupingExpr()
+	case lexer.Close:
+		fallthrough
+	case lexer.Sprintf:
+		fallthrough
 	case lexer.Identifier:
 		id := ps.current
 		ps.advance()
-		if ps.eat(lexer.LeftSquare) {
+		if id.Type == lexer.Identifier && ps.eat(lexer.LeftSquare) {
 			sub, err = ps.insideIndexing(id)
-		} else {
+		} else if ps.eat(lexer.LeftParen) {
+			sub, err = ps.callExpr(id)
+		} else if id.Type == lexer.Identifier {
 			sub, err = IdExpr{
 				Id: id,
 			}, nil
 		}
-	case lexer.Close:
-		sub, err = ps.closeExpr()
-	case lexer.Sprintf:
-		sub, err = ps.sprintfExpr()
 	case lexer.Getline:
 		sub, err = ps.getlineExpr()
 	case lexer.Error:
@@ -968,6 +964,21 @@ func (ps *parser) termExpr() (Expr, error) {
 		}
 	}
 	return sub, err
+}
+
+func (ps *parser) callExpr(called lexer.Token) (Expr, error) {
+	ps.eat(lexer.LeftParen)
+	exprs, err := ps.exprListEmpty()
+	if err != nil {
+		return nil, err
+	}
+	if !ps.eat(lexer.RightParen) {
+		return nil, ps.parseErrorAtCurrent("expected ')' after call")
+	}
+	return CallExpr{
+		Called: called,
+		Args:   exprs,
+	}, nil
 }
 
 func (ps *parser) getlineExpr() (Expr, error) {
@@ -1002,44 +1013,6 @@ func (ps *parser) getlineExpr() (Expr, error) {
 		Getline:  getline,
 		Variable: variable,
 		File:     file,
-	}, nil
-}
-
-func (ps *parser) closeExpr() (Expr, error) {
-	ps.eat(lexer.Close)
-	op := ps.previous
-	if !ps.eat(lexer.LeftParen) {
-		return nil, ps.parseErrorAtCurrent("expected '(' after 'close'")
-	}
-	file, err := ps.expr()
-	if err != nil {
-		return nil, err
-	}
-	if !ps.eat(lexer.RightParen) {
-		return nil, ps.parseErrorAtCurrent("expected ')' after argument of 'close'")
-	}
-	return CloseExpr{
-		Close: op,
-		File:  file,
-	}, nil
-}
-
-func (ps *parser) sprintfExpr() (Expr, error) {
-	ps.eat(lexer.Sprintf)
-	op := ps.previous
-	if !ps.eat(lexer.LeftParen) {
-		return nil, ps.parseErrorAtCurrent("expected '(' after 'sprintf'")
-	}
-	exprs, err := ps.exprList()
-	if err != nil {
-		return nil, err
-	}
-	if !ps.eat(lexer.RightParen) {
-		return nil, ps.parseErrorAtCurrent("expected ')' after argument list of 'sprintf'")
-	}
-	return SprintfExpr{
-		Sprintf: op,
-		Exprs:   exprs,
 	}, nil
 }
 

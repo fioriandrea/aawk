@@ -297,12 +297,10 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 		val, err = inter.evalBinaryBool(v)
 	case parser.DollarExpr:
 		val, err = inter.evalDollar(v)
-	case parser.CloseExpr:
-		val, err = inter.evalClose(v)
-	case parser.SprintfExpr:
-		val, err = inter.evalSprintf(v)
 	case parser.GetlineExpr:
 		val, err = inter.evalGetline(v)
+	case parser.CallExpr:
+		val, err = inter.evalCall(v)
 	}
 	return val, err
 }
@@ -412,40 +410,6 @@ func (inter *interpreter) evalDollar(de parser.DollarExpr) (awkvalue, error) {
 	return inter.getField(int(inter.toGoFloat(ind))), nil
 }
 
-func (inter *interpreter) evalClose(ce parser.CloseExpr) (awkvalue, error) {
-	file, err := inter.eval(ce.File)
-	if err != nil {
-		return nil, err
-	}
-	str := inter.toGoString(file)
-	opr := inter.outprograms.close(str)
-	oprn := 0
-	if opr != nil {
-		oprn = 1
-	}
-	of := inter.outfiles.close(str)
-	ofn := 0
-	if of != nil {
-		ofn = 1
-	}
-	ipr := inter.inprograms.close(str)
-	iprn := 0
-	if ipr != nil {
-		iprn = 1
-	}
-
-	return awknumber(oprn + ofn + iprn), nil
-}
-
-func (inter *interpreter) evalSprintf(spe parser.SprintfExpr) (awkvalue, error) {
-	var str strings.Builder
-	err := inter.fprintf(&str, spe.Sprintf, spe.Exprs)
-	if err != nil {
-		return nil, err
-	}
-	return awknormalstring(str.String()), nil
-}
-
 func (inter *interpreter) evalGetline(gl parser.GetlineExpr) (awkvalue, error) {
 	var err error
 	var filestr string
@@ -485,6 +449,17 @@ func (inter *interpreter) evalGetline(gl parser.GetlineExpr) (awkvalue, error) {
 		inter.setField(0, recstr)
 	}
 	return retval, nil
+}
+
+func (inter *interpreter) evalCall(ce parser.CallExpr) (awkvalue, error) {
+	called := ce.Called
+	switch called.Type {
+	case lexer.Close:
+		return inter.evalClose(ce)
+	case lexer.Sprintf:
+		return inter.evalSprintf(ce)
+	}
+	return nil, inter.runtimeError(ce.Called, "cannot call non callable")
 }
 
 func (inter *interpreter) evalAnd(bb parser.BinaryBoolExpr) (awkvalue, error) {
@@ -651,7 +626,8 @@ func (inter *interpreter) evalAssignToLhs(lhs parser.LhsExpr, val awkvalue) (awk
 	case parser.IndexingExpr:
 		val := inter.getVariable(left.Id.Lexeme)
 		if val == nil {
-			inter.setVariable(left.Id.Lexeme, left.Id, awkarray{})
+			val = awkarray{}
+			inter.setVariable(left.Id.Lexeme, left.Id, val)
 		}
 		arr, isarr := val.(awkarray)
 		if !isarr {
