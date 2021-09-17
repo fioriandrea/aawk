@@ -210,10 +210,7 @@ func (ps *parser) itemList() ([]Item, error) {
 			return nil, err
 		}
 		items = append(items, item)
-		if !ps.checkTerminator() {
-			return nil, ps.parseErrorAtCurrent("expected terminator")
-		}
-		ps.advance()
+		ps.eatTerminator()
 		ps.skipNewLines()
 	}
 	return items, nil

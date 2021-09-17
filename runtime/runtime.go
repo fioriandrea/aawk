@@ -663,7 +663,7 @@ func (inter *interpreter) evalAssignToLhs(lhs parser.LhsExpr, val awkvalue) (awk
 			return nil, inter.runtimeError(left.Id, "cannot use array in scalar context")
 		}
 		f = func(v awkvalue) {
-			inter.env.set(left.Id.Lexeme, v)
+			inter.setVariable(left.Id.Lexeme, left.Id, v)
 		}
 	case parser.DollarExpr:
 		i, err := inter.evalDollar(left)
@@ -676,9 +676,9 @@ func (inter *interpreter) evalAssignToLhs(lhs parser.LhsExpr, val awkvalue) (awk
 	case parser.IndexingExpr:
 		val := inter.getVariable(left.Id.Lexeme)
 		if val == nil {
-			inter.env.set(left.Id.Lexeme, awkarray{})
+			inter.setVariable(left.Id.Lexeme, left.Id, awkarray{})
 		}
-		arr, isarr := inter.env.get(left.Id.Lexeme).(awkarray)
+		arr, isarr := val.(awkarray)
 		if !isarr {
 			return nil, inter.runtimeError(left.Id, "cannot index scalar variable")
 		}
@@ -866,7 +866,7 @@ func (inter *interpreter) setVariable(name string, token lexer.Token, v awkvalue
 	return nil
 }
 
-func (inter *interpreter) initBuiltInVars() {
+func (inter *interpreter) initBuiltInVars(paths []string) {
 	inter.builtins = map[string]awkvalue{
 		"CONVFMT": awknormalstring("%.6g"),
 		"FS":      awknormalstring(" "),
@@ -876,6 +876,14 @@ func (inter *interpreter) initBuiltInVars() {
 		"ORS":     awknormalstring("\n"),
 		"SUBSEP":  awknormalstring("\034"),
 	}
+	argc := len(paths) + 1
+	argv := map[string]awkvalue{}
+	argv["0"] = awknumericstring(os.Args[0])
+	for i := 1; i <= argc-1; i++ {
+		argv[fmt.Sprintf("%d", i)] = awknumericstring(paths[i-1])
+	}
+	inter.builtins["ARGC"] = awknumber(argc)
+	inter.builtins["ARGV"] = awkarray(argv)
 }
 
 func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
@@ -888,9 +896,9 @@ func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
 	return nil
 }
 
-func (inter *interpreter) initialize() {
+func (inter *interpreter) initialize(paths []string) {
 	inter.env = environment{}
-	inter.initBuiltInVars()
+	inter.initBuiltInVars(paths)
 	inter.outprograms = outwriters{}
 	inter.outfiles = outwriters{}
 }
@@ -945,7 +953,7 @@ func specialFilter(item parser.Item, ttype lexer.TokenType) bool {
 func Run(items []parser.Item, paths []string) error {
 	var inter interpreter
 
-	inter.initialize()
+	inter.initialize(paths)
 
 	items, begins := filterItems(items, func(item parser.Item) bool {
 		return specialFilter(item, lexer.Begin)
@@ -996,15 +1004,24 @@ func (inter *interpreter) processNormals(normals []parser.Item, paths []string) 
 	if len(normals) == 0 {
 		return nil
 	}
-	if len(paths) == 0 {
-		err := inter.processFile(normals, os.Stdin)
-		if err != nil {
-			return err
+
+	inter.builtins["NR"] = awknumber(1)
+	argv := inter.builtins["ARGV"].(awkarray)
+	processed := false
+	for i := 1; i <= int(inter.toGoFloat(inter.builtins["ARGC"])); i++ {
+		filename := inter.toGoString(argv[fmt.Sprintf("%d", i)])
+		if i == int(inter.toGoFloat(inter.builtins["ARGC"])) && !processed || filename == "" {
+			err := inter.processFile(normals, os.Stdin)
+			if err != nil {
+				return err
+			}
+			continue
 		}
-		return nil
-	}
-	for _, path := range paths {
-		file, err := os.Open(path)
+		if filename == "" {
+			continue
+		}
+		processed = true
+		file, err := os.Open(filename)
 		if err != nil {
 			return err
 		}
@@ -1022,7 +1039,7 @@ func (inter *interpreter) processNormals(normals []parser.Item, paths []string) 
 
 func (inter *interpreter) processFile(normals []parser.Item, f *os.File) error {
 	scanner := bufio.NewScanner(f) // TODO: use RS
-	inter.builtins["NR"] = awknumber(1)
+	inter.builtins["FNR"] = awknumber(1)
 	for scanner.Scan() {
 		text := scanner.Text()
 		inter.processInputRecord(text)
@@ -1041,6 +1058,7 @@ func (inter *interpreter) processFile(normals []parser.Item, f *os.File) error {
 			}
 		}
 		inter.builtins["NR"] = inter.toNumber(inter.builtins["NR"]) + 1
+		inter.builtins["FNR"] = inter.toNumber(inter.builtins["FNR"]) + 1
 	}
 	if err := scanner.Err(); err != nil {
 		return err
