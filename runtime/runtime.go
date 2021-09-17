@@ -320,6 +320,8 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 		val, err = inter.evalGetline(v)
 	case parser.CallExpr:
 		val, err = inter.evalCall(v)
+	case parser.InExpr:
+		val, err = inter.evalIn(v)
 	}
 	return val, err
 }
@@ -358,11 +360,11 @@ func (inter *interpreter) evalBinary(b parser.BinaryExpr) (awkvalue, error) {
 			err = inter.runtimeError(b.Op, "attempt to divide by 0")
 			break
 		}
-		res = awknumber(math.Mod(float64(inter.toNumber(left)), float64(inter.toNumber(right))))
+		res = awknumber(math.Mod(inter.toGoFloat(left), inter.toGoFloat(right)))
 	case lexer.Caret:
-		res = awknumber(math.Pow(float64(inter.toNumber(left)), float64(inter.toNumber(right))))
+		res = awknumber(math.Pow(inter.toGoFloat(left), inter.toGoFloat(right)))
 	case lexer.Concat:
-		res = awknormalstring(inter.toString(left).String() + inter.toString(right).String())
+		res = awknormalstring(inter.toGoString(left) + inter.toGoString(right))
 	case lexer.Equal:
 		c := awknumber(inter.compareValues(left, right))
 		if c == 0 {
@@ -497,6 +499,32 @@ func (inter *interpreter) evalCall(ce parser.CallExpr) (awkvalue, error) {
 		return inter.evalInt(ce)
 	}
 	return nil, inter.runtimeError(ce.Called, "cannot call non callable")
+}
+
+func (inter *interpreter) evalIn(ine parser.InExpr) (awkvalue, error) {
+	var elem awkvalue
+	var err error
+	switch v := ine.Left.(type) {
+	case parser.ExprList:
+		elem, err = inter.evalIndex(v)
+	default:
+		elem, err = inter.eval(v)
+	}
+	if err != nil {
+		return nil, err
+	}
+	v := inter.getVariable(ine.Right.Id.Lexeme)
+	arr, isarr := v.(awkarray)
+	if !isarr {
+		return nil, inter.runtimeError(ine.Right.Id, "cannot use 'in' for non array")
+	}
+	str := inter.toGoString(elem)
+	_, ok := arr[str]
+	if ok {
+		return awknumber(1), nil
+	} else {
+		return awknumber(0), nil
+	}
 }
 
 func (inter *interpreter) evalAnd(bb parser.BinaryBoolExpr) (awkvalue, error) {
@@ -709,12 +737,18 @@ func (inter *interpreter) evalIndexing(i parser.IndexingExpr) (awkvalue, error) 
 		if err != nil {
 			return nil, err
 		}
-		return vv[index.String()], nil
+		res := vv[index.String()]
+		vv[index.String()] = res
+		return res, nil
 	default:
 		if v != nil {
 			return nil, inter.runtimeError(i.Id, "cannot index a scalar value")
 		}
-		return nil, inter.setVariable(i.Id.Lexeme, i.Id, awkarray{})
+		err := inter.setVariable(i.Id.Lexeme, i.Id, awkarray{})
+		if err != nil {
+			return nil, err
+		}
+		return inter.evalIndexing(i)
 	}
 }
 

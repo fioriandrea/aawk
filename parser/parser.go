@@ -115,6 +115,18 @@ type CallExpr struct {
 	Expr
 }
 
+type InExpr struct {
+	Left  Expr
+	Op    lexer.Token
+	Right IdExpr
+	Expr
+}
+
+type ExprList []Expr
+
+func (el ExprList) isExpr() {}
+func (el ExprList) isNode() {}
+
 type Stat interface {
 	isStat()
 	Node
@@ -365,19 +377,16 @@ func (ps *parser) printStat() (PrintStat, error) {
 
 	ps.eat(lexer.Print, lexer.Printf)
 	op := ps.previous
-	var paren bool
-	if paren = ps.eat(lexer.LeftParen); !paren {
-		ps.inprint = true
-	}
-	exprs, err := ps.exprListEmpty()
+	ps.inprint = true
+	exprs, err := ps.exprListEmpty(func() bool { return ps.checkEndOfPrintExprList() })
 	if err != nil {
 		return PrintStat{}, err
 	}
-	if paren && !ps.eat(lexer.RightParen) {
-		return PrintStat{}, ps.parseErrorAtCurrent("expected closing ')' for print statement")
-	}
-	if paren {
-		ps.inprint = true
+	if len(exprs) == 1 {
+		exprlist, ok := exprs[0].(ExprList)
+		if ok {
+			exprs = exprlist
+		}
 	}
 	var redir lexer.Token
 	var file Expr
@@ -552,15 +561,15 @@ func (ps *parser) forStat() (ForStat, error) {
 	}, nil
 }
 
-func (ps *parser) exprListEmpty() ([]Expr, error) {
-	if ps.checkEndOfExprList() {
+func (ps *parser) exprListEmpty(eolfn func() bool) ([]Expr, error) {
+	if eolfn() || ps.checkTerminator() {
 		return nil, nil
 	}
-	exprs, err := ps.exprList()
+	exprs, err := ps.exprList(eolfn)
 	return exprs, err
 }
 
-func (ps *parser) exprList() ([]Expr, error) {
+func (ps *parser) exprList(eolfn func() bool) ([]Expr, error) {
 	exprs := make([]Expr, 0)
 	expr, err := ps.expr()
 	if err != nil {
@@ -568,7 +577,7 @@ func (ps *parser) exprList() ([]Expr, error) {
 	}
 	exprs = append(exprs, expr)
 
-	for !ps.checkEndOfExprList() {
+	for !eolfn() && !ps.checkTerminator() {
 		if !ps.eat(lexer.Comma) {
 			return nil, ps.parseErrorAtCurrent("expected ','")
 		}
@@ -580,12 +589,6 @@ func (ps *parser) exprList() ([]Expr, error) {
 		exprs = append(exprs, expr)
 	}
 	return exprs, nil
-}
-
-func (ps *parser) checkEndOfExprList() bool {
-	// stop at rightcurly (e.g. {print "a"}), rightparen (end of func args), pipe , doublegreater and greater (redir)
-	// cannot just check for comma presence because {print "a" print "b"} would pass
-	return ps.checkTerminator() || ps.check(lexer.RightCurly, lexer.RightParen, lexer.RightSquare, lexer.Pipe, lexer.DoubleGreater, lexer.Greater)
 }
 
 func (ps *parser) expr() (Expr, error) {
@@ -719,13 +722,13 @@ func (ps *parser) orExpr() (Expr, error) {
 }
 
 func (ps *parser) andExpr() (Expr, error) {
-	left, err := ps.comparisonExpr()
+	left, err := ps.inExpr()
 	if err != nil {
 		return nil, err
 	}
 	for ps.eat(lexer.DoubleAnd) {
 		op := ps.previous
-		right, err := ps.comparisonExpr()
+		right, err := ps.inExpr()
 		if err != nil {
 			return nil, err
 		}
@@ -733,6 +736,52 @@ func (ps *parser) andExpr() (Expr, error) {
 			Left:  left,
 			Op:    op,
 			Right: right,
+		}
+	}
+	return left, nil
+}
+
+func (ps *parser) inExpr() (Expr, error) {
+	var left Expr
+	if ps.eat(lexer.LeftParen) {
+		if ps.inprint {
+			ps.inprint = false
+			defer func() { ps.inprint = true }()
+		}
+		leftl, err := ps.exprList(func() bool { return ps.check(lexer.RightParen) })
+		if err != nil {
+			return nil, err
+		}
+		if !ps.eat(lexer.RightParen) {
+			return nil, ps.parseErrorAtCurrent("expected matching ')'")
+		}
+		left = ExprList(leftl)
+		if len(leftl) > 1 && !ps.check(lexer.In) {
+			return nil, ps.parseErrorAt(ps.previous, "expected 'in' after index list")
+		} else if !ps.check(lexer.In) {
+			left = leftl[0]
+		}
+	} else {
+		var err error
+		left, err = ps.comparisonExpr()
+		if err != nil {
+			return nil, err
+		}
+	}
+	for ps.eat(lexer.In) {
+		op := ps.previous
+		right, err := ps.termExpr()
+		if err != nil {
+			return nil, err
+		}
+		id, isid := right.(IdExpr)
+		if !isid {
+			return nil, ps.parseErrorAt(op, "cannot use 'in' for non identifier")
+		}
+		left = InExpr{
+			Left:  left,
+			Op:    op,
+			Right: id,
 		}
 	}
 	return left, nil
@@ -763,7 +812,7 @@ func (ps *parser) concatExpr() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	for !ps.checkTerminator() && ps.check(lexer.Dollar, lexer.Not, lexer.Identifier, lexer.Number, lexer.String, lexer.LeftParen) {
+	for !ps.checkTerminator() && ps.checkAllowedAfterConcat() {
 		op := lexer.Token{
 			Type:   lexer.Concat,
 			Lexeme: "",
@@ -935,7 +984,25 @@ func (ps *parser) termExpr() (Expr, error) {
 		}, nil
 		ps.advance()
 	case lexer.LeftParen:
-		sub, err = ps.groupingExpr()
+		if ps.inprint {
+			ps.inprint = false
+			defer func() { ps.inprint = true }()
+			ps.advance()
+			var exprl []Expr
+			exprl, err = ps.exprList(func() bool { return ps.check(lexer.RightParen) })
+			if err != nil {
+				break
+			}
+			if !ps.eat(lexer.RightParen) {
+				sub, err = nil, ps.parseErrorAtCurrent("expected closing ')'")
+			} else if len(exprl) == 1 {
+				sub, err = exprl[0], nil
+			} else {
+				sub, err = ExprList(exprl), nil
+			}
+		} else {
+			sub, err = ps.groupingExpr()
+		}
 	case lexer.Close:
 		fallthrough
 	case lexer.Sprintf:
@@ -971,20 +1038,21 @@ func (ps *parser) termExpr() (Expr, error) {
 	case lexer.Getline:
 		sub, err = ps.getlineExpr()
 	case lexer.Error:
+		defer ps.advance()
 		sub, err = nil, ps.parseErrorAtCurrent("")
-		ps.advance()
 	default:
-		if !ps.checkTerminator() {
-			sub, err = nil, ps.parseErrorAtCurrent("unexpected token")
-			ps.advance()
-		}
+		defer ps.advance()
+		sub, err = nil, ps.parseErrorAtCurrent("unexpected token")
+	}
+	if err != nil && !ps.checkAllowedAfterExpr() {
+		sub, err = nil, ps.parseErrorAtCurrent("unexpected token")
 	}
 	return sub, err
 }
 
 func (ps *parser) callExpr(called lexer.Token) (Expr, error) {
 	ps.eat(lexer.LeftParen)
-	exprs, err := ps.exprListEmpty()
+	exprs, err := ps.exprListEmpty(func() bool { return ps.check(lexer.LeftParen) })
 	if err != nil {
 		return nil, err
 	}
@@ -1048,7 +1116,7 @@ func (ps *parser) groupingExpr() (Expr, error) {
 }
 
 func (ps *parser) insideIndexing(id lexer.Token) (Expr, error) {
-	exprs, err := ps.exprList()
+	exprs, err := ps.exprList(func() bool { return ps.check(lexer.RightSquare) })
 	if err != nil {
 		return nil, err
 	}
@@ -1119,4 +1187,18 @@ func (ps *parser) skipNewLines() {
 
 func (ps *parser) checkBeginLhs() bool {
 	return ps.check(lexer.Dollar, lexer.Identifier)
+}
+
+func (ps *parser) checkAllowedAfterExpr() bool {
+	return !ps.check(lexer.Do, lexer.Print, lexer.Printf, lexer.While, lexer.For, lexer.Function, lexer.Break, lexer.Continue, lexer.Next)
+}
+
+func (ps *parser) checkAllowedAfterConcat() bool {
+	return ps.check(lexer.Atan2, lexer.Int, lexer.Close, lexer.Cos, lexer.Log, lexer.Exp, lexer.Rand, lexer.Srand, lexer.Getline, lexer.Sprintf) || ps.check(lexer.Dollar, lexer.Not, lexer.Identifier, lexer.Number, lexer.String, lexer.LeftParen)
+}
+
+func (ps *parser) checkEndOfPrintExprList() bool {
+	// stop at rightcurly (e.g. {print "a"}), rightparen (end of func args), pipe , doublegreater and greater (redir)
+	// cannot just check for comma presence because {print "a" print "b"} would pass
+	return ps.checkTerminator() || ps.check(lexer.RightCurly, lexer.RightParen, lexer.RightSquare, lexer.Pipe, lexer.DoubleGreater, lexer.Greater)
 }
