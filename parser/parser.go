@@ -1044,6 +1044,8 @@ func (ps *parser) termExpr() (Expr, error) {
 		if id.Type == lexer.Identifier && ps.eat(lexer.LeftSquare) {
 			sub, err = ps.insideIndexing(id)
 		} else if ps.eat(lexer.LeftParen) {
+			ps.inparen = true
+			defer func() { ps.inparen = false }()
 			sub, err = ps.callExpr(id)
 		} else if id.Type == lexer.Identifier {
 			sub, err = IdExpr{
@@ -1067,7 +1069,7 @@ func (ps *parser) termExpr() (Expr, error) {
 
 func (ps *parser) callExpr(called lexer.Token) (Expr, error) {
 	ps.eat(lexer.LeftParen)
-	exprs, err := ps.exprListEmpty(func() bool { return ps.check(lexer.LeftParen) })
+	exprs, err := ps.exprListEmpty(func() bool { return ps.check(lexer.RightParen) })
 	if err != nil {
 		return nil, err
 	}
