@@ -311,7 +311,9 @@ func (ps *parser) blockStat() (BlockStat, error) {
 		return nil, err
 	}
 	if !ps.eat(lexer.RightCurly) {
-		return nil, ps.parseErrorAtCurrent("expected '}'")
+		err := ps.parseErrorAtCurrent("expected '}'")
+		fmt.Fprint(os.Stderr, err)
+		return nil, err
 	}
 	return ret, nil
 }
@@ -325,7 +327,9 @@ func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, error) {
 		if err != nil {
 			errtoret = err
 			fmt.Fprintln(os.Stderr, err)
-			ps.advance()
+			for !ps.checkTerminator() {
+				ps.advance()
+			}
 			continue
 		}
 		stats = append(stats, stat)
