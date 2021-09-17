@@ -4,10 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -56,92 +54,14 @@ func (env environment) set(k string, v awkvalue) {
 	env[k] = v
 }
 
-type outcommand struct {
-	cmd   *exec.Cmd
-	stdin io.WriteCloser
-}
-
-func (c outcommand) Write(p []byte) (int, error) {
-	n, err := c.stdin.Write(p)
-	return n, err
-}
-
-func (c outcommand) Close() error {
-	if err := c.stdin.Close(); err != nil {
-		return err
-	}
-	if err := c.cmd.Wait(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func spawnProgram(name string) io.WriteCloser {
-	cmd := exec.Command("sh", "-c", name)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		log.Fatal(err)
-	}
-	if err := cmd.Start(); err != nil {
-		log.Fatal(err)
-	}
-	res := outcommand{
-		stdin: stdin,
-		cmd:   cmd,
-	}
-	return res
-}
-
-func spawnFile(name string, mode int) io.WriteCloser {
-	f, err := os.OpenFile(name, os.O_CREATE|os.O_WRONLY|mode, 0600)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return f
-}
-
-func spawnFileAppend(name string) io.WriteCloser {
-	return spawnFile(name, os.O_APPEND)
-}
-
-func spawnFileNormal(name string) io.WriteCloser {
-	return spawnFile(name, 0)
-}
-
-type outwriters map[string]io.WriteCloser
-
-func (ow outwriters) get(name string, spawner func(string) io.WriteCloser) io.WriteCloser {
-	wc, ok := ow[name]
-	if ok {
-		return wc
-	}
-	ow[name] = spawner(name)
-	return ow[name]
-}
-
-func (ow outwriters) close(name string) error {
-	wc, ok := ow[name]
-	if !ok {
-		return nil
-	}
-	delete(ow, name)
-	return wc.Close()
-}
-
-func (ow outwriters) closeAll() {
-	for name, _ := range ow {
-		ow.close(name)
-	}
-}
-
 type interpreter struct {
 	env         environment
 	builtins    map[string]awkvalue
 	fields      []awkvalue
 	outprograms outwriters
 	outfiles    outwriters
+	currentFile io.RuneReader
+	inprograms  inreaders
 }
 
 func (inter *interpreter) execute(stat parser.Stat) error {
@@ -186,7 +106,7 @@ func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
 		filestr := inter.toGoString(file)
 		switch ps.RedirOp.Type {
 		case lexer.Pipe:
-			w = inter.outprograms.get(filestr, spawnProgram)
+			w = inter.outprograms.get(filestr, spawnOutProgram)
 		case lexer.Greater:
 			w = inter.outfiles.get(filestr, spawnFileNormal)
 		case lexer.DoubleGreater:
@@ -380,6 +300,8 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 		val, err = inter.evalClose(v)
 	case parser.SprintfExpr:
 		val, err = inter.evalSprintf(v)
+	case parser.GetlineExpr:
+		val, err = inter.evalGetline(v)
 	}
 	return val, err
 }
@@ -495,12 +417,23 @@ func (inter *interpreter) evalClose(ce parser.CloseExpr) (awkvalue, error) {
 		return nil, err
 	}
 	str := inter.toGoString(file)
-	pr := inter.outprograms.close(str)
-	prn := 0
-	if pr != nil {
-		prn = 1
+	opr := inter.outprograms.close(str)
+	oprn := 0
+	if opr != nil {
+		oprn = 1
 	}
-	return awknumber(prn), nil
+	of := inter.outfiles.close(str)
+	ofn := 0
+	if of != nil {
+		ofn = 1
+	}
+	ipr := inter.inprograms.close(str)
+	iprn := 0
+	if ipr != nil {
+		iprn = 1
+	}
+
+	return awknumber(oprn + ofn + iprn), nil
 }
 
 func (inter *interpreter) evalSprintf(spe parser.SprintfExpr) (awkvalue, error) {
@@ -510,6 +443,45 @@ func (inter *interpreter) evalSprintf(spe parser.SprintfExpr) (awkvalue, error) 
 		return nil, err
 	}
 	return awknormalstring(str.String()), nil
+}
+
+func (inter *interpreter) evalGetline(gl parser.GetlineExpr) (awkvalue, error) {
+	var err error
+	var filestr string
+	if gl.File != nil {
+		file, err := inter.eval(gl.File)
+		if err != nil {
+			return nil, err
+		}
+		filestr = inter.toGoString(file)
+	}
+	var reader io.RuneReader
+	switch gl.Op.Type {
+	case lexer.Pipe:
+		reader = inter.inprograms.get(filestr, spawnInProgram)
+	default:
+		reader = inter.currentFile
+	}
+	var record string
+	record, err = nextRecord(reader, inter.getRsRune())
+	var retval awknumber
+	if err == nil {
+		retval = 1
+	} else if err == io.EOF {
+		retval = 0
+	} else {
+		retval = -1
+	}
+	recstr := awknumericstring(record)
+	if gl.Variable != nil && retval > 0 {
+		_, err := inter.evalAssignToLhs(gl.Variable, recstr)
+		if err != nil {
+			return nil, err
+		}
+	} else if retval > 0 {
+		inter.setField(0, recstr)
+	}
+	return retval, nil
 }
 
 func (inter *interpreter) evalAnd(bb parser.BinaryBoolExpr) (awkvalue, error) {
@@ -900,8 +872,9 @@ func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
 func (inter *interpreter) initialize(paths []string) {
 	inter.env = environment{}
 	inter.initBuiltInVars(paths)
-	inter.outprograms = outwriters{}
-	inter.outfiles = outwriters{}
+	inter.outprograms = newOutWriters()
+	inter.outfiles = newOutWriters()
+	inter.inprograms = newInReaders()
 }
 
 func (inter *interpreter) cleanup() {
@@ -1047,33 +1020,11 @@ func (inter *interpreter) getRsRune() rune {
 	return runes[0]
 }
 
-func nextRecord(reader io.RuneReader, delim rune) (string, error) {
-	var buff strings.Builder
-	for {
-		c, _, err := reader.ReadRune()
-		if err != nil {
-			if err != io.EOF {
-				return "", err
-			}
-			str := buff.String()
-			if len(str) == 0 {
-				return "", err
-			}
-			return str, nil
-		}
-		if c == delim {
-			break
-		}
-		fmt.Fprintf(&buff, "%c", c)
-	}
-	return buff.String(), nil
-}
-
 func (inter *interpreter) processFile(normals []parser.Item, f *os.File) error {
-	reader := bufio.NewReader(f)
+	inter.currentFile = bufio.NewReader(f)
 	inter.builtins["FNR"] = awknumber(1)
 	for {
-		text, err := nextRecord(reader, inter.getRsRune())
+		text, err := nextRecord(inter.currentFile, inter.getRsRune())
 		if err != nil {
 			return err
 		}

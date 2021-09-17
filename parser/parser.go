@@ -113,6 +113,14 @@ type SprintfExpr struct {
 	Expr
 }
 
+type GetlineExpr struct {
+	Op       lexer.Token
+	Getline  lexer.Token
+	Variable LhsExpr
+	File     Expr
+	Expr
+}
+
 type Stat interface {
 	isStat()
 	Node
@@ -358,18 +366,23 @@ func (ps *parser) exprStat() (ExprStat, error) {
 }
 
 func (ps *parser) printStat() (PrintStat, error) {
-	ps.inprint = true
 	defer func() { ps.inprint = false }()
 
 	ps.eat(lexer.Print, lexer.Printf)
 	op := ps.previous
-	paren := ps.eat(lexer.LeftParen)
+	var paren bool
+	if paren = ps.eat(lexer.LeftParen); !paren {
+		ps.inprint = true
+	}
 	exprs, err := ps.exprListEmpty()
 	if err != nil {
 		return PrintStat{}, err
 	}
 	if paren && !ps.eat(lexer.RightParen) {
 		return PrintStat{}, ps.parseErrorAtCurrent("expected closing ')' for print statement")
+	}
+	if paren {
+		ps.inprint = true
 	}
 	var redir lexer.Token
 	var file Expr
@@ -581,8 +594,41 @@ func (ps *parser) checkEndOfExprList() bool {
 }
 
 func (ps *parser) expr() (Expr, error) {
-	sub, err := ps.assignExpr()
+	sub, err := ps.pipeGetlineExpr()
 	return sub, err
+}
+
+func (ps *parser) pipeGetlineExpr() (Expr, error) {
+	prog, err := ps.assignExpr()
+	if err != nil {
+		return nil, err
+	}
+	if !ps.inprint && ps.eat(lexer.Pipe) {
+		op := ps.previous
+		if !ps.eat(lexer.Getline) {
+			return nil, ps.parseErrorAtCurrent("expected 'getline' after '|'")
+		}
+		getline := ps.previous
+		var variable LhsExpr
+		if ps.check(lexer.Identifier) {
+			varexpr, err := ps.expr()
+			if err != nil {
+				return nil, err
+			}
+			var islhs bool
+			variable, islhs = varexpr.(LhsExpr)
+			if !islhs {
+				return nil, ps.parseErrorAt(op, "expected lhs after 'getline'")
+			}
+		}
+		return GetlineExpr{
+			Op:       op,
+			Getline:  getline,
+			Variable: variable,
+			File:     prog,
+		}, nil
+	}
+	return prog, nil
 }
 
 func (ps *parser) assignExpr() (Expr, error) {
