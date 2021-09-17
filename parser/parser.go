@@ -202,6 +202,15 @@ type parser struct {
 	previous  lexer.Token
 	inprint   bool
 	ingetline bool
+	inparen   bool
+}
+
+func (ps *parser) isInGetline() bool {
+	return ps.ingetline && !ps.inparen
+}
+
+func (ps *parser) isInPrint() bool {
+	return ps.inprint && !ps.inparen
 }
 
 func GetSyntaxTree(lexer lexer.Lexer) ([]Item, error) {
@@ -744,6 +753,8 @@ func (ps *parser) andExpr() (Expr, error) {
 func (ps *parser) inExpr() (Expr, error) {
 	var left Expr
 	if ps.eat(lexer.LeftParen) {
+		ps.inparen = true
+		defer func() { ps.inparen = false }()
 		if ps.inprint {
 			ps.inprint = false
 			defer func() { ps.inprint = true }()
@@ -792,7 +803,7 @@ func (ps *parser) comparisonExpr() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !ps.ingetline && (ps.eat(lexer.Equal, lexer.NotEqual, lexer.Less, lexer.LessEqual, lexer.GreaterEqual) || (!ps.inprint && ps.eat(lexer.Greater))) {
+	if ps.isInGetline() && (ps.eat(lexer.Equal, lexer.NotEqual, lexer.Less, lexer.LessEqual, lexer.GreaterEqual) || (ps.isInPrint() && ps.eat(lexer.Greater))) {
 		op := ps.previous
 		right, err := ps.concatExpr()
 		if err != nil {
@@ -984,9 +995,9 @@ func (ps *parser) termExpr() (Expr, error) {
 		}, nil
 		ps.advance()
 	case lexer.LeftParen:
+		ps.inparen = true
+		defer func() { ps.inparen = false }()
 		if ps.inprint {
-			ps.inprint = false
-			defer func() { ps.inprint = true }()
 			ps.advance()
 			var exprl []Expr
 			exprl, err = ps.exprList(func() bool { return ps.check(lexer.RightParen) })
@@ -1066,6 +1077,7 @@ func (ps *parser) callExpr(called lexer.Token) (Expr, error) {
 }
 
 func (ps *parser) getlineExpr() (Expr, error) {
+	ps.ingetline = true
 	defer func() { ps.ingetline = false }()
 	ps.eat(lexer.Getline)
 	getline := ps.previous
@@ -1084,7 +1096,6 @@ func (ps *parser) getlineExpr() (Expr, error) {
 	var op lexer.Token
 	var file Expr
 	if ps.eat(lexer.Less) {
-		ps.ingetline = true
 		op = ps.previous
 		var err error
 		file, err = ps.expr()
