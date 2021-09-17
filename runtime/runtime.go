@@ -95,7 +95,7 @@ func spawnProgram(name string) io.WriteCloser {
 }
 
 func spawnFile(name string, mode int) io.WriteCloser {
-	f, err := os.OpenFile(name, os.O_APPEND|os.O_CREATE|os.O_WRONLY|mode, 0600)
+	f, err := os.OpenFile(name, os.O_CREATE|os.O_WRONLY|mode, 0600)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -874,6 +874,7 @@ func (inter *interpreter) initBuiltInVars(paths []string) {
 		"NR":      nil,
 		"OFS":     awknormalstring(" "),
 		"ORS":     awknormalstring("\n"),
+		"RS":      awknormalstring("\n"),
 		"SUBSEP":  awknormalstring("\034"),
 	}
 	argc := len(paths) + 1
@@ -1010,9 +1011,9 @@ func (inter *interpreter) processNormals(normals []parser.Item, paths []string) 
 	processed := false
 	for i := 1; i <= int(inter.toGoFloat(inter.builtins["ARGC"])); i++ {
 		filename := inter.toGoString(argv[fmt.Sprintf("%d", i)])
-		if i == int(inter.toGoFloat(inter.builtins["ARGC"])) && !processed || filename == "" {
+		if i == int(inter.toGoFloat(inter.builtins["ARGC"])) && !processed || filename == "-" {
 			err := inter.processFile(normals, os.Stdin)
-			if err != nil {
+			if err != nil && err != io.EOF {
 				return err
 			}
 			continue
@@ -1026,7 +1027,7 @@ func (inter *interpreter) processNormals(normals []parser.Item, paths []string) 
 			return err
 		}
 		err = inter.processFile(normals, file)
-		if err != nil {
+		if err != nil && err != io.EOF {
 			return err
 		}
 		err = file.Close()
@@ -1037,11 +1038,45 @@ func (inter *interpreter) processNormals(normals []parser.Item, paths []string) 
 	return nil
 }
 
+func (inter *interpreter) getRsRune() rune {
+	rs := inter.toGoString(inter.builtins["RS"])
+	if rs == "" {
+		rs = "\n"
+	}
+	runes := []rune(rs)
+	return runes[0]
+}
+
+func nextRecord(reader io.RuneReader, delim rune) (string, error) {
+	var buff strings.Builder
+	for {
+		c, _, err := reader.ReadRune()
+		if err != nil {
+			if err != io.EOF {
+				return "", err
+			}
+			str := buff.String()
+			if len(str) == 0 {
+				return "", err
+			}
+			return str, nil
+		}
+		if c == delim {
+			break
+		}
+		fmt.Fprintf(&buff, "%c", c)
+	}
+	return buff.String(), nil
+}
+
 func (inter *interpreter) processFile(normals []parser.Item, f *os.File) error {
-	scanner := bufio.NewScanner(f) // TODO: use RS
+	reader := bufio.NewReader(f)
 	inter.builtins["FNR"] = awknumber(1)
-	for scanner.Scan() {
-		text := scanner.Text()
+	for {
+		text, err := nextRecord(reader, inter.getRsRune())
+		if err != nil {
+			return err
+		}
 		inter.processInputRecord(text)
 		for _, normal := range normals {
 			patact := normal.(parser.PatternAction)
@@ -1060,8 +1095,4 @@ func (inter *interpreter) processFile(normals []parser.Item, f *os.File) error {
 		inter.builtins["NR"] = inter.toNumber(inter.builtins["NR"]) + 1
 		inter.builtins["FNR"] = inter.toNumber(inter.builtins["FNR"]) + 1
 	}
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-	return nil
 }

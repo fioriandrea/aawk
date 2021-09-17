@@ -247,6 +247,7 @@ func (ps *parser) item() (Item, error) {
 		}
 	case ExprPattern:
 		if act == nil {
+			begtok.Type = lexer.Print
 			act = BlockStat{
 				PrintStat{
 					Print: begtok,
