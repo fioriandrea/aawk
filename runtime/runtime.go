@@ -82,6 +82,7 @@ type interpreter struct {
 	inprograms  inreaders
 	infiles     inreaders
 	rng         RNG
+	inprint     bool
 }
 
 func (inter *interpreter) execute(stat parser.Stat) error {
@@ -118,6 +119,8 @@ func (inter *interpreter) executeExprStat(es parser.ExprStat) error {
 }
 
 func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
+	inter.inprint = true
+	defer func() { inter.inprint = false }()
 	var w io.Writer
 	w = os.Stdout
 	if ps.File != nil {
@@ -829,6 +832,8 @@ func (inter *interpreter) toGoFloat(v awkvalue) float64 {
 func (inter *interpreter) numberToString(n float64) string {
 	if math.Trunc(n) == n {
 		return fmt.Sprintf("%d", int64(n))
+	} else if inter.inprint {
+		return fmt.Sprintf(inter.toGoString(inter.getVariable("OFMT")), n)
 	} else {
 		return fmt.Sprintf(inter.toGoString(inter.getVariable("CONVFMT")), n)
 	}
@@ -911,15 +916,18 @@ func (inter *interpreter) setVariable(name string, token lexer.Token, v awkvalue
 
 func (inter *interpreter) initBuiltInVars(paths []string) {
 	inter.builtins = map[string]awkvalue{
-		"CONVFMT": awknormalstring("%.6g"),
-		"FS":      awknormalstring(" "),
-		"NF":      nil,
-		"NR":      nil,
-		"OFS":     awknormalstring(" "),
-		"ORS":     awknormalstring("\n"),
-		"RS":      awknormalstring("\n"),
-		"SUBSEP":  awknormalstring("\034"),
+		"CONVFMT":  awknormalstring("%.6g"),
+		"FILENAME": nil,
+		"FS":       awknormalstring(" "),
+		"NF":       nil,
+		"NR":       nil,
+		"OFMT":     awknormalstring("%.6g"),
+		"OFS":      awknormalstring(" "),
+		"ORS":      awknormalstring("\n"),
+		"RS":       awknormalstring("\n"),
+		"SUBSEP":   awknormalstring("\034"),
 	}
+
 	argc := len(paths) + 1
 	argv := map[string]awkvalue{}
 	argv["0"] = awknumericstring(os.Args[0])
@@ -1066,28 +1074,29 @@ func (inter *interpreter) processNormals(normals []parser.Item, paths []string) 
 	for i := 1; i <= int(inter.toGoFloat(inter.builtins["ARGC"])); i++ {
 		filename := inter.toGoString(argv[fmt.Sprintf("%d", i)])
 		if i == int(inter.toGoFloat(inter.builtins["ARGC"])) && !processed || filename == "-" {
+			filename = "-"
 			err := inter.processFile(normals, os.Stdin)
 			if err != nil && err != io.EOF {
 				return err
 			}
+		} else if filename == "" {
 			continue
+		} else {
+			processed = true
+			file, err := os.Open(filename)
+			if err != nil {
+				return err
+			}
+			err = inter.processFile(normals, file)
+			if err != nil && err != io.EOF {
+				return err
+			}
+			err = file.Close()
+			if err != nil {
+				return err
+			}
 		}
-		if filename == "" {
-			continue
-		}
-		processed = true
-		file, err := os.Open(filename)
-		if err != nil {
-			return err
-		}
-		err = inter.processFile(normals, file)
-		if err != nil && err != io.EOF {
-			return err
-		}
-		err = file.Close()
-		if err != nil {
-			return err
-		}
+		inter.builtins["FILENAME"] = awknormalstring(filename)
 	}
 	return nil
 }
