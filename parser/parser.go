@@ -46,6 +46,18 @@ type StringExpr struct {
 	Expr
 }
 
+type RegexExpr struct {
+	Regex lexer.Token
+	Expr
+}
+
+type MatchExpr struct {
+	Left  Expr
+	Op    lexer.Token
+	Right Expr
+	Expr
+}
+
 type AssignExpr struct {
 	Left  LhsExpr
 	Equal lexer.Token
@@ -372,7 +384,7 @@ func (ps *parser) nextStat() (NextStat, error) {
 		return NextStat{}, ps.parseErrorAt(op, "cannot use 'next' inside BEGIN or END")
 	}
 	if !ps.checkAllowedAfterNexts() {
-		return NextStat{}, ps.parseErrorAtCurrent("unexpected token")
+		return NextStat{}, ps.parseErrorAtCurrent("unexpected token after 'next'")
 	}
 	return NextStat{
 		Next: op,
@@ -386,7 +398,7 @@ func (ps *parser) breakStat() (BreakStat, error) {
 		return BreakStat{}, ps.parseErrorAt(op, "cannot have break outside loop")
 	}
 	if !ps.checkAllowedAfterNexts() {
-		return BreakStat{}, ps.parseErrorAtCurrent("unexpected token")
+		return BreakStat{}, ps.parseErrorAtCurrent("unexpected token after 'break'")
 	}
 	return BreakStat{
 		Break: op,
@@ -400,7 +412,7 @@ func (ps *parser) continueStat() (ContinueStat, error) {
 		return ContinueStat{}, ps.parseErrorAt(op, "cannot have continue outside loop")
 	}
 	if !ps.checkAllowedAfterNexts() {
-		return ContinueStat{}, ps.parseErrorAtCurrent("unexpected token")
+		return ContinueStat{}, ps.parseErrorAtCurrent("unexpected token after 'continue'")
 	}
 	return ContinueStat{
 		Continue: op,
@@ -873,13 +885,13 @@ func (ps *parser) orExpr() (Expr, error) {
 }
 
 func (ps *parser) andExpr() (Expr, error) {
-	left, err := ps.inExpr()
+	left, err := ps.matchExpr()
 	if err != nil {
 		return nil, err
 	}
 	for ps.eat(lexer.DoubleAnd) {
 		op := ps.previous
-		right, err := ps.inExpr()
+		right, err := ps.matchExpr()
 		if err != nil {
 			return nil, err
 		}
@@ -887,6 +899,50 @@ func (ps *parser) andExpr() (Expr, error) {
 			Left:  left,
 			Op:    op,
 			Right: right,
+		}
+	}
+	return left, nil
+}
+
+func (ps *parser) matchExpr() (Expr, error) {
+	left, err := ps.inExpr()
+	if err != nil {
+		return nil, err
+	}
+	if ps.eat(lexer.Match, lexer.NotMatch) {
+		op := ps.previous
+		right, err := ps.inExpr()
+		if err != nil {
+			return nil, err
+		}
+		left = MatchExpr{
+			Left:  left,
+			Op:    op,
+			Right: right,
+		}
+	}
+	if re, ok := left.(RegexExpr); ok {
+		left = MatchExpr{
+			Left: DollarExpr{
+				Dollar: lexer.Token{
+					Lexeme: "$",
+					Type:   lexer.Dollar,
+					Line:   re.Regex.Line,
+				},
+				Field: NumberExpr{
+					Num: lexer.Token{
+						Lexeme: "0",
+						Type:   lexer.Number,
+						Line:   re.Regex.Line,
+					},
+				},
+			},
+			Op: lexer.Token{
+				Lexeme: "~",
+				Type:   lexer.Match,
+				Line:   re.Regex.Line,
+			},
+			Right: re,
 		}
 	}
 	return left, nil
@@ -1152,6 +1208,10 @@ func (ps *parser) termExpr() (Expr, error) {
 		}
 	case lexer.Getline:
 		sub, err = ps.getlineExpr()
+	case lexer.Slash:
+		fallthrough
+	case lexer.DivAssign:
+		sub, err = ps.regexExpr()
 	case lexer.Error:
 		defer ps.advance()
 		sub, err = nil, ps.parseErrorAtCurrent("")
@@ -1160,9 +1220,20 @@ func (ps *parser) termExpr() (Expr, error) {
 		sub, err = nil, ps.parseErrorAtCurrent("unexpected token")
 	}
 	if err != nil && !ps.checkAllowedAfterExpr() {
-		sub, err = nil, ps.parseErrorAtCurrent("unexpected token")
+		sub, err = nil, ps.parseErrorAtCurrent("unexpected token after term")
 	}
 	return sub, err
+}
+
+func (ps *parser) regexExpr() (Expr, error) {
+	ps.advanceRegex()
+	if ps.current.Type == lexer.Error {
+		return nil, ps.parseErrorAtCurrent("")
+	}
+	ps.advance()
+	return RegexExpr{
+		Regex: ps.previous,
+	}, nil
 }
 
 func (ps *parser) callExpr(called lexer.Token) (Expr, error) {
@@ -1254,11 +1325,11 @@ func (ps *parser) parseErrorAt(tok lexer.Token, msg string) error {
 	prelude := fmt.Sprintf("%s: at line %d", os.Args[0], tok.Line)
 	if ps.current.Type == lexer.Error {
 		if len(msg) > 0 {
-			return fmt.Errorf("%s: %s", prelude, msg)
+			return fmt.Errorf("%s: lexer error: %s", prelude, msg)
 		}
-		return fmt.Errorf("%s: %s", prelude, tok.Lexeme)
+		return fmt.Errorf("%s: lexer error: %s", prelude, tok.Lexeme)
 	}
-	return fmt.Errorf("%s (%s): %s", prelude, tok.Lexeme, msg)
+	return fmt.Errorf("%s (%s): parse error: %s", prelude, tok.Lexeme, msg)
 }
 
 func (ps *parser) parseErrorAtCurrent(msg string) error {
@@ -1267,6 +1338,12 @@ func (ps *parser) parseErrorAtCurrent(msg string) error {
 
 func (ps *parser) advance() {
 	t := ps.lexer.Next()
+	ps.previous = ps.current
+	ps.current = t
+}
+
+func (ps *parser) advanceRegex() {
+	t := ps.lexer.NextRegex()
 	ps.previous = ps.current
 	ps.current = t
 }

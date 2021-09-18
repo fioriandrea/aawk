@@ -352,6 +352,27 @@ func (l *Lexer) Next() Token {
 	}
 }
 
+func (l *Lexer) NextRegex() Token {
+	var lexeme strings.Builder
+	fmt.Fprintf(&lexeme, "%s", l.previousToken.Lexeme[1:])
+	line := l.previousToken.Line
+	for !l.atEnd() && l.currentRune != '\n' {
+		if l.currentRune == '/' && l.previousRune != '\\' {
+			break
+		}
+		l.advanceInside(&lexeme)
+	}
+	if l.currentRune != '/' {
+		return l.makeErrorToken("unterminated regex")
+	}
+	l.advance()
+	return Token{
+		Lexeme: lexeme.String(),
+		Type:   Regex,
+		Line:   line,
+	}
+}
+
 func (l *Lexer) newLine() Token {
 	l.line++
 	l.advance()

@@ -360,6 +360,8 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 		val, err = inter.evalCall(v)
 	case parser.InExpr:
 		val, err = inter.evalIn(v)
+	case parser.MatchExpr:
+		val, err = inter.evalMatchExpr(v)
 	}
 	return val, err
 }
@@ -563,6 +565,41 @@ func (inter *interpreter) evalIn(ine parser.InExpr) (awkvalue, error) {
 	} else {
 		return awknumber(0), nil
 	}
+}
+
+func (inter *interpreter) evalMatchExpr(me parser.MatchExpr) (awkvalue, error) {
+	left, err := inter.eval(me.Left)
+	if err != nil {
+		return nil, err
+	}
+	right, err := inter.evalRegex(me.Right)
+	if err != nil {
+		return nil, err
+	}
+	if right.MatchString(inter.toGoString(left)) {
+		return awknumber(1), nil
+	} else {
+		return awknumber(0), nil
+	}
+}
+
+func (inter *interpreter) evalRegex(e parser.Expr) (*regexp.Regexp, error) {
+	var regexstr string
+	switch v := e.(type) {
+	case parser.RegexExpr:
+		regexstr = v.Regex.Lexeme
+	default:
+		rev, err := inter.eval(e)
+		if err != nil {
+			return nil, err
+		}
+		regexstr = inter.toGoString(rev)
+	}
+	res, err := regexp.Compile(regexstr)
+	if err != nil {
+		return nil, err // todo
+	}
+	return res, nil
 }
 
 func (inter *interpreter) evalAnd(bb parser.BinaryBoolExpr) (awkvalue, error) {
