@@ -576,7 +576,15 @@ func (inter *interpreter) evalMatchExpr(me parser.MatchExpr) (awkvalue, error) {
 	if err != nil {
 		return nil, err
 	}
-	if right.MatchString(inter.toGoString(left)) {
+	var negate bool
+	if me.Op.Type == lexer.NotMatch {
+		negate = true
+	}
+	res := right.MatchString(inter.toGoString(left))
+	if negate {
+		res = !res
+	}
+	if res {
 		return awknumber(1), nil
 	} else {
 		return awknumber(0), nil
