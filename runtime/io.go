@@ -168,6 +168,7 @@ func spawnInProgram(name string) RuneReadCloser {
 	if err != nil {
 		log.Fatal(err)
 	}
+	cmd.Stdin = os.Stdin
 	if err := cmd.Start(); err != nil {
 		log.Fatal(err)
 	}

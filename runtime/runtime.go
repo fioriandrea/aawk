@@ -63,31 +63,30 @@ type environment struct {
 	calling *environment
 }
 
-func (env *environment) get(k string) awkvalue {
-	if env == nil {
-		return nil
+func (env *environment) get(k string, globals map[string]awkvalue) awkvalue {
+	if env != nil {
+		v, ok := env.locals[k]
+		if ok {
+			return v
+		}
 	}
-	v, ok := env.locals[k]
-	if ok {
-		return v
-	}
-	return env.calling.get(k)
+	return globals[k]
 }
 
-func (env *environment) set(k string, v awkvalue) {
-	_, ok := env.locals[k]
-	if ok {
-		env.locals[k] = v
-	} else if env.calling != nil {
-		env.calling.set(k, v)
-	} else {
-		env.locals[k] = v
+func (env *environment) set(k string, v awkvalue, globals map[string]awkvalue) {
+	if env != nil {
+		_, ok := env.locals[k]
+		if ok {
+			env.locals[k] = v
+		}
 	}
+	globals[k] = v
 }
 
-func newEnvironment() *environment {
+func newEnvironment(calling *environment) *environment {
 	return &environment{
-		locals: map[string]awkvalue{},
+		locals:  map[string]awkvalue{},
+		calling: calling,
 	}
 }
 
@@ -110,7 +109,7 @@ func NewRNG(seed int64) RNG {
 
 type interpreter struct {
 	env          *environment
-	global       map[string]awkvalue
+	globals      map[string]awkvalue
 	ftable       map[string]parser.FunctionDef
 	fields       []awkvalue
 	outprograms  outwriters
@@ -208,10 +207,10 @@ func (inter *interpreter) executeSimplePrintStat(w io.Writer, ps parser.PrintSta
 				return inter.runtimeError(ps.Token(), "cannot print array")
 			}
 			fmt.Fprintf(w, "%s%s", sep, inter.toGoString(v))
-			sep = inter.toGoString(inter.global["OFS"])
+			sep = inter.toGoString(inter.globals["OFS"])
 		}
 	}
-	fmt.Fprintf(w, "%s", inter.toGoString(inter.global["ORS"]))
+	fmt.Fprintf(w, "%s", inter.toGoString(inter.globals["ORS"]))
 	return nil
 }
 
@@ -437,13 +436,13 @@ func (inter *interpreter) evalBinary(b parser.BinaryExpr) (awkvalue, error) {
 		res = inter.toNumber(left) * inter.toNumber(right)
 	case lexer.Slash:
 		if inter.toNumber(right) == 0 {
-			err = inter.runtimeError(b.Left.Token(), "attempt to divide by 0")
+			err = inter.runtimeError(b.Right.Token(), "attempt to divide by 0")
 			break
 		}
 		res = inter.toNumber(left) / inter.toNumber(right)
 	case lexer.Percent:
 		if inter.toNumber(right) == 0 {
-			err = inter.runtimeError(b.Left.Token(), "attempt to divide by 0")
+			err = inter.runtimeError(b.Right.Token(), "attempt to divide by 0")
 			break
 		}
 		res = awknumber(math.Mod(inter.toGoFloat(left), inter.toGoFloat(right)))
@@ -592,7 +591,7 @@ func (inter *interpreter) evalCall(ce parser.CallExpr) (awkvalue, error) {
 }
 
 func (inter *interpreter) evalFunctionCall(fi parser.FunctionDef, args []parser.Expr) (awkvalue, error) {
-	subenv := newEnvironment()
+	subenv := newEnvironment(inter.env)
 
 	linkarrays := map[string]string{}
 
@@ -606,7 +605,9 @@ func (inter *interpreter) evalFunctionCall(fi parser.FunctionDef, args []parser.
 		if err != nil {
 			return nil, err
 		}
-		subenv.set(argtok.Lexeme, v)
+		subenv.locals[argtok.Lexeme] = v
+
+		// undefined values could be used as an array
 		if idexpr, ok := arg.(parser.IdExpr); ok && v == nil {
 			linkarrays[argtok.Lexeme] = idexpr.Id.Lexeme
 		}
@@ -618,9 +619,8 @@ func (inter *interpreter) evalFunctionCall(fi parser.FunctionDef, args []parser.
 			return nil, err
 		}
 	}
-	subenv.calling = inter.env
 	inter.env = subenv
-	defer func() { inter.env = inter.env.calling }()
+	defer func() { inter.env = subenv.calling }()
 
 	err := inter.execute(fi.Body)
 	var retval awkvalue
@@ -629,10 +629,12 @@ func (inter *interpreter) evalFunctionCall(fi parser.FunctionDef, args []parser.
 	} else if err != nil {
 		return nil, err
 	}
+
+	// link back arrays
 	for local, calling := range linkarrays {
-		v := inter.env.get(local)
+		v := inter.env.get(local, nil)
 		if _, ok := v.(awkarray); ok {
-			inter.env.calling.set(calling, v)
+			inter.env.calling.set(calling, v, inter.globals)
 		}
 	}
 	return retval, nil
@@ -772,17 +774,17 @@ func (inter *interpreter) evalOr(bb parser.BinaryBoolExpr) (awkvalue, error) {
 }
 
 func (inter *interpreter) compareValues(left, right awkvalue) float64 {
-	_, nsl := left.(awknumericstring)
-	_, nsr := right.(awknumericstring)
+	_, nusl := left.(awknumericstring)
+	_, nusr := right.(awknumericstring)
 
-	_, sl := left.(awkstring)
-	_, sr := right.(awkstring)
+	_, nosl := left.(awknormalstring)
+	_, nosr := right.(awknormalstring)
 
 	/* Comparisons (with the '<', "<=", "!=", "==", '>', and ">=" operators)
 	shall be made numerically if both operands are numeric, if one is
 	numeric and the other has a string value that is a numeric string, or
 	if one is numeric and the other has the uninitialized value. */
-	if sl || sr || (left == nil && right == nil) || (nsl && nsr) {
+	if nosl || nosr || (left == nil && right == nil) || (nusl && nusr) {
 		strl := inter.toString(left).String()
 		strr := inter.toString(right).String()
 		if strl == strr {
@@ -1076,28 +1078,28 @@ func (inter *interpreter) setField(i int, v awkvalue) {
 }
 
 func (inter *interpreter) getVariable(name string) awkvalue {
-	return inter.env.get(name)
+	return inter.env.get(name, inter.globals)
 }
 
 func (inter *interpreter) setVariable(name string, token lexer.Token, v awkvalue) error {
 	if name == "FS" {
 		return inter.setFs(token, v)
 	}
-	inter.env.set(name, v)
+	inter.env.set(name, v, inter.globals)
 	return nil
 }
 
 func (inter *interpreter) initBuiltInVars(paths []string) {
-	inter.global["CONVFMT"] = awknormalstring("%.6g")
-	inter.global["FILENAME"] = nil
-	inter.global["FS"] = awknormalstring(" ")
-	inter.global["NF"] = nil
-	inter.global["NR"] = nil
-	inter.global["OFMT"] = awknormalstring("%.6g")
-	inter.global["OFS"] = awknormalstring(" ")
-	inter.global["ORS"] = awknormalstring("\n")
-	inter.global["RS"] = awknormalstring("\n")
-	inter.global["SUBSEP"] = awknormalstring("\034")
+	inter.globals["CONVFMT"] = awknormalstring("%.6g")
+	inter.globals["FILENAME"] = nil
+	inter.globals["FS"] = awknormalstring(" ")
+	inter.globals["NF"] = nil
+	inter.globals["NR"] = nil
+	inter.globals["OFMT"] = awknormalstring("%.6g")
+	inter.globals["OFS"] = awknormalstring(" ")
+	inter.globals["ORS"] = awknormalstring("\n")
+	inter.globals["RS"] = awknormalstring("\n")
+	inter.globals["SUBSEP"] = awknormalstring("\034")
 
 	argc := len(paths) + 1
 	argv := map[string]awkvalue{}
@@ -1105,15 +1107,15 @@ func (inter *interpreter) initBuiltInVars(paths []string) {
 	for i := 1; i <= argc-1; i++ {
 		argv[fmt.Sprintf("%d", i)] = awknumericstring(paths[i-1])
 	}
-	inter.global["ARGC"] = awknumber(argc)
-	inter.global["ARGV"] = awkarray(argv)
+	inter.globals["ARGC"] = awknumber(argc)
+	inter.globals["ARGV"] = awkarray(argv)
 
 	environ := awkarray{}
 	for _, envpair := range os.Environ() {
 		splits := strings.Split(envpair, "=")
 		environ[splits[0]] = awknumericstring(splits[1])
 	}
-	inter.global["ENVIRON"] = environ
+	inter.globals["ENVIRON"] = environ
 }
 
 func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
@@ -1122,13 +1124,13 @@ func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
 	if err != nil {
 		return inter.runtimeError(token, "invalid regular expression")
 	}
-	inter.global["FS"] = awknormalstring(str)
+	inter.globals["FS"] = awknormalstring(str)
 	return nil
 }
 
 func (inter *interpreter) initialize(paths []string, functions []parser.Item) {
-	inter.env = newEnvironment()
-	inter.global = inter.env.locals
+	inter.globals = map[string]awkvalue{}
+	inter.env = nil
 	inter.initBuiltInVars(paths)
 	inter.outprograms = newOutWriters()
 	inter.outfiles = newOutWriters()
@@ -1260,12 +1262,12 @@ func (inter *interpreter) processNormals(normals []parser.Item, paths []string) 
 		return nil
 	}
 
-	inter.global["NR"] = awknumber(1)
-	argv := inter.global["ARGV"].(awkarray)
+	inter.globals["NR"] = awknumber(1)
+	argv := inter.globals["ARGV"].(awkarray)
 	processed := false
-	for i := 1; i <= int(inter.toGoFloat(inter.global["ARGC"])); i++ {
+	for i := 1; i <= int(inter.toGoFloat(inter.globals["ARGC"])); i++ {
 		filename := inter.toGoString(argv[fmt.Sprintf("%d", i)])
-		if i == int(inter.toGoFloat(inter.global["ARGC"])) && !processed || filename == "-" {
+		if i == int(inter.toGoFloat(inter.globals["ARGC"])) && !processed || filename == "-" {
 			filename = "-"
 			err := inter.processFile(normals, os.Stdin)
 			if err != nil && err != io.EOF {
@@ -1293,7 +1295,7 @@ func (inter *interpreter) processNormals(normals []parser.Item, paths []string) 
 }
 
 func (inter *interpreter) getRsRune() rune {
-	rs := inter.toGoString(inter.global["RS"])
+	rs := inter.toGoString(inter.globals["RS"])
 	if rs == "" {
 		rs = "\n"
 	}
@@ -1302,10 +1304,10 @@ func (inter *interpreter) getRsRune() rune {
 }
 
 func (inter *interpreter) processFile(normals []parser.Item, f *os.File) error {
-	inter.global["FILENAME"] = awknormalstring(f.Name())
+	inter.globals["FILENAME"] = awknormalstring(f.Name())
 	inter.currentFile = bufio.NewReader(f)
 outer:
-	for inter.global["FNR"] = awknumber(1); ; inter.global["NR"], inter.global["FNR"] = inter.toNumber(inter.global["NR"])+1, inter.toNumber(inter.global["FNR"])+1 {
+	for inter.globals["FNR"] = awknumber(1); ; inter.globals["NR"], inter.globals["FNR"] = inter.toNumber(inter.globals["NR"])+1, inter.toNumber(inter.globals["FNR"])+1 {
 		text, err := nextRecord(inter.currentFile, inter.getRsRune())
 		if err != nil {
 			return err

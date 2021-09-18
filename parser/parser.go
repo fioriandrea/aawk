@@ -1069,7 +1069,6 @@ func (ps *parser) regexExpr() (Expr, error) {
 func (ps *parser) callExpr(called lexer.Token) (Expr, error) {
 	ps.parendepth++
 	defer func() { ps.parendepth-- }()
-	ps.eat(lexer.LeftParen)
 	exprs, err := ps.exprListEmpty(func() bool { return ps.check(lexer.RightParen) })
 	if err != nil {
 		return nil, err
@@ -1121,7 +1120,7 @@ func (ps *parser) getlineExpr() (Expr, error) {
 func (ps *parser) groupingExpr() (Expr, error) {
 	ps.parendepth++
 	defer func() { ps.parendepth-- }()
-	ps.advance()
+	ps.eat(lexer.LeftParen)
 	var exprl []Expr
 	var err error
 	exprl, err = ps.exprList(func() bool { return ps.check(lexer.RightParen) })
