@@ -7,232 +7,6 @@ import (
 	"github.com/fioriandrea/aawk/lexer"
 )
 
-type Node interface {
-	isNode()
-}
-
-type Expr interface {
-	isExpr()
-	Node
-}
-
-type BinaryExpr struct {
-	Left  Expr
-	Op    lexer.Token
-	Right Expr
-	Expr
-}
-
-type BinaryBoolExpr struct {
-	Left  Expr
-	Op    lexer.Token
-	Right Expr
-	Expr
-}
-
-type UnaryExpr struct {
-	Op    lexer.Token
-	Right Expr
-	Expr
-}
-
-type NumberExpr struct {
-	Num lexer.Token
-	Expr
-}
-
-type StringExpr struct {
-	Str lexer.Token
-	Expr
-}
-
-type RegexExpr struct {
-	Regex lexer.Token
-	Expr
-}
-
-type MatchExpr struct {
-	Left  Expr
-	Op    lexer.Token
-	Right Expr
-	Expr
-}
-
-type AssignExpr struct {
-	Left  LhsExpr
-	Equal lexer.Token
-	Right Expr
-	Expr
-}
-
-type LhsExpr interface {
-	isLhs()
-	Expr
-}
-
-type IdExpr struct {
-	Id lexer.Token
-	LhsExpr
-}
-
-type IndexingExpr struct {
-	Id    lexer.Token
-	Index []Expr
-	LhsExpr
-}
-
-type DollarExpr struct {
-	Dollar lexer.Token
-	Field  Expr
-	LhsExpr
-}
-
-type IncrementExpr struct {
-	Op  lexer.Token
-	Lhs LhsExpr
-	Expr
-}
-
-type PreIncrementExpr struct {
-	IncrementExpr
-}
-
-type PostIncrementExpr struct {
-	IncrementExpr
-}
-
-type TernaryExpr struct {
-	Cond  Expr
-	Expr0 Expr
-	Expr1 Expr
-	Expr
-}
-
-type GetlineExpr struct {
-	Op       lexer.Token
-	Getline  lexer.Token
-	Variable LhsExpr
-	File     Expr
-	Expr
-}
-
-type CallExpr struct {
-	Called lexer.Token
-	Args   []Expr
-	Expr
-}
-
-type InExpr struct {
-	Left  Expr
-	Op    lexer.Token
-	Right IdExpr
-	Expr
-}
-
-type ExprList []Expr
-
-func (el ExprList) isExpr() {}
-func (el ExprList) isNode() {}
-
-type Stat interface {
-	isStat()
-	Node
-}
-
-type ExprStat struct {
-	Expr Expr
-	Stat
-}
-
-type PrintStat struct {
-	Print   lexer.Token
-	Exprs   []Expr
-	RedirOp lexer.Token
-	File    Expr
-	Stat
-}
-
-type IfStat struct {
-	If       lexer.Token
-	Cond     Expr
-	Body     Stat
-	ElseBody Stat
-	Stat
-}
-
-type ForStat struct {
-	For  lexer.Token
-	Init Stat
-	Cond Expr
-	Inc  Stat
-	Body Stat
-	Stat
-}
-
-type ForEachStat struct {
-	For   lexer.Token
-	Id    IdExpr
-	In    lexer.Token
-	Array IdExpr
-	Body  Stat
-	Stat
-}
-
-type NextStat struct {
-	Next lexer.Token
-	Stat
-}
-
-type BreakStat struct {
-	Break lexer.Token
-	Stat
-}
-
-type ContinueStat struct {
-	Continue lexer.Token
-	Stat
-}
-
-type BlockStat []Stat
-
-func (bs BlockStat) isStat() {}
-func (bs BlockStat) isNode() {}
-
-type Item interface {
-	isItem()
-}
-
-type ItemList struct {
-	Items []Item
-	Node
-}
-
-type PatternAction struct {
-	Pattern Pattern
-	Action  BlockStat
-	Item
-}
-
-type Pattern interface {
-	isPattern()
-}
-
-type SpecialPattern struct {
-	Type lexer.Token
-	Pattern
-}
-
-type ExprPattern struct {
-	Expr Expr
-	Pattern
-}
-
-type RangePattern struct {
-	Expr0 Expr
-	Expr1 Expr
-	Pattern
-}
-
 type parser struct {
 	lexer     lexer.Lexer
 	current   lexer.Token
@@ -341,6 +115,7 @@ func (ps *parser) pattern() (Pattern, error) {
 			return nil, err
 		}
 		if ps.eat(lexer.Comma) {
+			op := ps.previous
 			if ps.check(lexer.LeftCurly) {
 				return nil, ps.parseErrorAt(ps.previous, "expected pattern")
 			}
@@ -350,6 +125,7 @@ func (ps *parser) pattern() (Pattern, error) {
 			}
 			return RangePattern{
 				Expr0: res,
+				Comma: op,
 				Expr1: res1,
 			}, nil
 		}
@@ -844,6 +620,7 @@ func (ps *parser) ternaryExpr() (Expr, error) {
 		return nil, err
 	}
 	if ps.eat(lexer.QuestionMark) {
+		op := ps.previous
 		expr0, err := ps.expr()
 		if err != nil {
 			return nil, err
@@ -856,9 +633,10 @@ func (ps *parser) ternaryExpr() (Expr, error) {
 			return nil, err
 		}
 		return TernaryExpr{
-			Cond:  cond,
-			Expr0: expr0,
-			Expr1: expr1,
+			Cond:     cond,
+			Question: op,
+			Expr0:    expr0,
+			Expr1:    expr1,
 		}, nil
 	}
 	return cond, nil

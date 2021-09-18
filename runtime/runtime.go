@@ -171,7 +171,7 @@ func (inter *interpreter) executeSimplePrintStat(w io.Writer, ps parser.PrintSta
 			}
 			_, isarr := v.(awkarray)
 			if isarr {
-				return inter.runtimeError(ps.Print, "cannot print array")
+				return inter.runtimeError(ps.Token(), "cannot print array")
 			}
 			fmt.Fprintf(w, "%s%s", sep, inter.toGoString(v))
 			sep = inter.toGoString(inter.builtins["OFS"])
@@ -312,7 +312,7 @@ func (inter *interpreter) executeForEachStat(fes parser.ForEachStat) error {
 		return inter.runtimeError(fes.Array.Id, "cannot do for each on a non array")
 	}
 	for k := range arr {
-		err := inter.setVariable(fes.Id.Id.Lexeme, fes.Id.Id, awknormalstring(k))
+		err := inter.setVariable(fes.Id.Id.Lexeme, fes.Id.Token(), awknormalstring(k))
 		if err != nil {
 			return err
 		}
@@ -378,7 +378,7 @@ func (inter *interpreter) evalBinary(b parser.BinaryExpr) (awkvalue, error) {
 	_, arrl := left.(awkarray)
 	_, arrr := right.(awkarray)
 	if arrl || arrr {
-		return nil, inter.runtimeError(b.Op, "cannot use array in scalar context")
+		return nil, inter.runtimeError(b.Token(), "cannot use array in scalar context")
 	}
 	var res awkvalue
 	err = nil
@@ -391,13 +391,13 @@ func (inter *interpreter) evalBinary(b parser.BinaryExpr) (awkvalue, error) {
 		res = inter.toNumber(left) * inter.toNumber(right)
 	case lexer.Slash:
 		if inter.toNumber(right) == 0 {
-			err = inter.runtimeError(b.Op, "attempt to divide by 0")
+			err = inter.runtimeError(b.Left.Token(), "attempt to divide by 0")
 			break
 		}
 		res = inter.toNumber(left) / inter.toNumber(right)
 	case lexer.Percent:
 		if inter.toNumber(right) == 0 {
-			err = inter.runtimeError(b.Op, "attempt to divide by 0")
+			err = inter.runtimeError(b.Left.Token(), "attempt to divide by 0")
 			break
 		}
 		res = awknumber(math.Mod(inter.toGoFloat(left), inter.toGoFloat(right)))
@@ -538,7 +538,7 @@ func (inter *interpreter) evalCall(ce parser.CallExpr) (awkvalue, error) {
 	case lexer.Int:
 		return inter.evalInt(ce)
 	}
-	return nil, inter.runtimeError(ce.Called, "cannot call non callable")
+	return nil, inter.runtimeError(ce.Token(), "cannot call non callable")
 }
 
 func (inter *interpreter) evalIn(ine parser.InExpr) (awkvalue, error) {
@@ -556,7 +556,7 @@ func (inter *interpreter) evalIn(ine parser.InExpr) (awkvalue, error) {
 	v := inter.getVariable(ine.Right.Id.Lexeme)
 	arr, isarr := v.(awkarray)
 	if !isarr {
-		return nil, inter.runtimeError(ine.Right.Id, "cannot use 'in' for non array")
+		return nil, inter.runtimeError(ine.Right.Token(), "cannot use 'in' for non array")
 	}
 	str := inter.toGoString(elem)
 	_, ok := arr[str]
@@ -597,7 +597,7 @@ func (inter *interpreter) evalRegex(e parser.Expr) (*regexp.Regexp, error) {
 	}
 	res, err := regexp.Compile(regexstr)
 	if err != nil {
-		return nil, err // todo
+		return nil, inter.runtimeError(e.Token(), "invalid regular expression")
 	}
 	return res, nil
 }
@@ -672,7 +672,7 @@ func (inter *interpreter) evalUnary(u parser.UnaryExpr) (awkvalue, error) {
 	}
 	_, arr := right.(awkarray)
 	if arr {
-		return nil, inter.runtimeError(u.Op, "cannot use array in scalar context")
+		return nil, inter.runtimeError(u.Right.Token(), "cannot use array in scalar context")
 	}
 	var res awknumber
 	switch u.Op.Type {
@@ -702,7 +702,7 @@ func (inter *interpreter) evalAssign(a parser.AssignExpr) (awkvalue, error) {
 	}
 	_, isarr := right.(awkarray)
 	if isarr {
-		return nil, inter.runtimeError(a.Equal, "cannot use array in scalar context")
+		return nil, inter.runtimeError(a.Right.Token(), "cannot use array in scalar context")
 	}
 	res, err := inter.evalAssignToLhs(a.Left, right)
 	return res, err
@@ -750,10 +750,10 @@ func (inter *interpreter) evalAssignToLhs(lhs parser.LhsExpr, val awkvalue) (awk
 	case parser.IdExpr:
 		_, isarr := inter.getVariable(left.Id.Lexeme).(awkarray)
 		if isarr {
-			return nil, inter.runtimeError(left.Id, "cannot use array in scalar context")
+			return nil, inter.runtimeError(left.Token(), "cannot use array in scalar context")
 		}
 		f = func(v awkvalue) {
-			inter.setVariable(left.Id.Lexeme, left.Id, v)
+			inter.setVariable(left.Id.Lexeme, left.Token(), v)
 		}
 	case parser.DollarExpr:
 		i, err := inter.evalDollar(left)
@@ -767,11 +767,11 @@ func (inter *interpreter) evalAssignToLhs(lhs parser.LhsExpr, val awkvalue) (awk
 		val := inter.getVariable(left.Id.Lexeme)
 		if val == nil {
 			val = awkarray{}
-			inter.setVariable(left.Id.Lexeme, left.Id, val)
+			inter.setVariable(left.Id.Lexeme, left.Token(), val)
 		}
 		arr, isarr := val.(awkarray)
 		if !isarr {
-			return nil, inter.runtimeError(left.Id, "cannot index scalar variable")
+			return nil, inter.runtimeError(left.Token(), "cannot index scalar variable")
 		}
 		ind, err := inter.evalIndex(left.Index)
 		if err != nil {
@@ -817,9 +817,9 @@ func (inter *interpreter) evalIndexing(i parser.IndexingExpr) (awkvalue, error) 
 		return res, nil
 	default:
 		if v != nil {
-			return nil, inter.runtimeError(i.Id, "cannot index a scalar value")
+			return nil, inter.runtimeError(i.Token(), "cannot index a scalar value")
 		}
-		err := inter.setVariable(i.Id.Lexeme, i.Id, awkarray{})
+		err := inter.setVariable(i.Id.Lexeme, i.Token(), awkarray{})
 		if err != nil {
 			return nil, err
 		}

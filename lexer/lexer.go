@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -366,6 +367,10 @@ func (l *Lexer) NextRegex() Token {
 		return l.makeErrorToken("unterminated regex")
 	}
 	l.advance()
+	_, err := regexp.Compile(lexeme.String())
+	if err != nil {
+		return l.makeErrorToken("invalid regex")
+	}
 	return Token{
 		Lexeme: lexeme.String(),
 		Type:   Regex,
