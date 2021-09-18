@@ -314,6 +314,13 @@ type ItemList struct {
 	Node
 }
 
+type FunctionDef struct {
+	Name lexer.Token
+	Args []lexer.Token
+	Body BlockStat
+	Item
+}
+
 type PatternAction struct {
 	Pattern Pattern
 	Action  BlockStat

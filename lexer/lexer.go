@@ -98,6 +98,25 @@ const (
 	TokenCount
 )
 
+var Builtinvars = map[string]bool{
+	"ARGC":     true,
+	"ARGV":     true,
+	"CONVFMT":  true,
+	"ENVIRON":  true,
+	"FILENAME": true,
+	"FNR":      true,
+	"FS":       true,
+	"NF":       true,
+	"NR":       true,
+	"OFMT":     true,
+	"OFS":      true,
+	"ORS":      true,
+	"RLENGTH":  true,
+	"RS":       true,
+	"RSTART":   true,
+	"SUBSEP":   true,
+}
+
 var keywords = map[string]TokenType{
 	"atan2":    Atan2,
 	"BEGIN":    Begin,

@@ -50,14 +50,37 @@ type awkarray map[string]awkvalue
 
 func (a awkarray) isValue() {}
 
-type environment map[string]awkvalue
-
-func (env environment) get(k string) awkvalue {
-	return env[k]
+type environment struct {
+	locals  map[string]awkvalue
+	calling *environment
 }
 
-func (env environment) set(k string, v awkvalue) {
-	env[k] = v
+func (env *environment) get(k string) awkvalue {
+	if env == nil {
+		return nil
+	}
+	v, ok := env.locals[k]
+	if ok {
+		return v
+	}
+	return env.calling.get(k)
+}
+
+func (env *environment) set(k string, v awkvalue) {
+	_, ok := env.locals[k]
+	if ok {
+		env.locals[k] = v
+	} else if env.calling != nil {
+		env.calling.set(k, v)
+	} else {
+		env.locals[k] = v
+	}
+}
+
+func newEnvironment() *environment {
+	return &environment{
+		locals: map[string]awkvalue{},
+	}
 }
 
 type RNG struct {
@@ -78,8 +101,9 @@ func NewRNG(seed int64) RNG {
 }
 
 type interpreter struct {
-	env          environment
-	builtins     map[string]awkvalue
+	env          *environment
+	global       map[string]awkvalue
+	ftable       map[string]parser.FunctionDef
 	fields       []awkvalue
 	outprograms  outwriters
 	outfiles     outwriters
@@ -174,10 +198,10 @@ func (inter *interpreter) executeSimplePrintStat(w io.Writer, ps parser.PrintSta
 				return inter.runtimeError(ps.Token(), "cannot print array")
 			}
 			fmt.Fprintf(w, "%s%s", sep, inter.toGoString(v))
-			sep = inter.toGoString(inter.builtins["OFS"])
+			sep = inter.toGoString(inter.global["OFS"])
 		}
 	}
-	fmt.Fprintf(w, "%s", inter.toGoString(inter.builtins["ORS"]))
+	fmt.Fprintf(w, "%s", inter.toGoString(inter.global["ORS"]))
 	return nil
 }
 
@@ -537,8 +561,45 @@ func (inter *interpreter) evalCall(ce parser.CallExpr) (awkvalue, error) {
 		return inter.evalSrand(ce)
 	case lexer.Int:
 		return inter.evalInt(ce)
+	case lexer.Identifier:
+		if fi, ok := inter.ftable[called.Lexeme]; ok {
+			return inter.evalFunctionCall(fi, ce.Args)
+		}
 	}
 	return nil, inter.runtimeError(ce.Token(), "cannot call non callable")
+}
+
+func (inter *interpreter) evalFunctionCall(fi parser.FunctionDef, args []parser.Expr) (awkvalue, error) {
+	subenv := newEnvironment()
+
+	for _, argtok := range fi.Args {
+		var arg parser.Expr
+		if len(args) > 0 {
+			arg = args[0]
+			args = args[1:]
+		}
+		v, err := inter.eval(arg)
+		if err != nil {
+			return nil, err
+		}
+		subenv.set(argtok.Lexeme, v)
+	}
+
+	for _, arg := range args {
+		_, err := inter.eval(arg)
+		if err != nil {
+			return nil, err
+		}
+	}
+	subenv.calling = inter.env
+	inter.env = subenv
+	defer func() { inter.env = inter.env.calling }()
+
+	err := inter.execute(fi.Body)
+	if err != nil {
+		return nil, err
+	}
+	return nil, nil
 }
 
 func (inter *interpreter) evalIn(ine parser.InExpr) (awkvalue, error) {
@@ -953,39 +1014,28 @@ func (inter *interpreter) setField(i int, v awkvalue) {
 }
 
 func (inter *interpreter) getVariable(name string) awkvalue {
-	res, ok := inter.builtins[name]
-	if ok {
-		return res
-	}
 	return inter.env.get(name)
 }
 
 func (inter *interpreter) setVariable(name string, token lexer.Token, v awkvalue) error {
-	_, ok := inter.builtins[name]
-	if ok {
-		if name == "FS" {
-			return inter.setFs(token, v)
-		}
-		inter.builtins[name] = v
-		return nil
+	if name == "FS" {
+		return inter.setFs(token, v)
 	}
 	inter.env.set(name, v)
 	return nil
 }
 
 func (inter *interpreter) initBuiltInVars(paths []string) {
-	inter.builtins = map[string]awkvalue{
-		"CONVFMT":  awknormalstring("%.6g"),
-		"FILENAME": nil,
-		"FS":       awknormalstring(" "),
-		"NF":       nil,
-		"NR":       nil,
-		"OFMT":     awknormalstring("%.6g"),
-		"OFS":      awknormalstring(" "),
-		"ORS":      awknormalstring("\n"),
-		"RS":       awknormalstring("\n"),
-		"SUBSEP":   awknormalstring("\034"),
-	}
+	inter.global["CONVFMT"] = awknormalstring("%.6g")
+	inter.global["FILENAME"] = nil
+	inter.global["FS"] = awknormalstring(" ")
+	inter.global["NF"] = nil
+	inter.global["NR"] = nil
+	inter.global["OFMT"] = awknormalstring("%.6g")
+	inter.global["OFS"] = awknormalstring(" ")
+	inter.global["ORS"] = awknormalstring("\n")
+	inter.global["RS"] = awknormalstring("\n")
+	inter.global["SUBSEP"] = awknormalstring("\034")
 
 	argc := len(paths) + 1
 	argv := map[string]awkvalue{}
@@ -993,15 +1043,15 @@ func (inter *interpreter) initBuiltInVars(paths []string) {
 	for i := 1; i <= argc-1; i++ {
 		argv[fmt.Sprintf("%d", i)] = awknumericstring(paths[i-1])
 	}
-	inter.builtins["ARGC"] = awknumber(argc)
-	inter.builtins["ARGV"] = awkarray(argv)
+	inter.global["ARGC"] = awknumber(argc)
+	inter.global["ARGV"] = awkarray(argv)
 
 	environ := awkarray{}
 	for _, envpair := range os.Environ() {
 		splits := strings.Split(envpair, "=")
 		environ[splits[0]] = awknumericstring(splits[1])
 	}
-	inter.builtins["ENVIRON"] = environ
+	inter.global["ENVIRON"] = environ
 }
 
 func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
@@ -1010,12 +1060,13 @@ func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
 	if err != nil {
 		return inter.runtimeError(token, "invalid regular expression")
 	}
-	inter.builtins["FS"] = awknormalstring(str)
+	inter.global["FS"] = awknormalstring(str)
 	return nil
 }
 
-func (inter *interpreter) initialize(paths []string) {
-	inter.env = environment{}
+func (inter *interpreter) initialize(paths []string, functions []parser.Item) {
+	inter.env = newEnvironment()
+	inter.global = inter.env.locals
 	inter.initBuiltInVars(paths)
 	inter.outprograms = newOutWriters()
 	inter.outfiles = newOutWriters()
@@ -1024,6 +1075,12 @@ func (inter *interpreter) initialize(paths []string) {
 	inter.rng = NewRNG(0)
 	inter.currentFile = bufio.NewReader(os.Stdin)
 	inter.rangematched = map[int]bool{}
+
+	inter.ftable = map[string]parser.FunctionDef{}
+	for _, item := range functions {
+		fi := item.(parser.FunctionDef)
+		inter.ftable[fi.Name.Lexeme] = fi
+	}
 }
 
 func (inter *interpreter) cleanup() {
@@ -1079,7 +1136,13 @@ func specialFilter(item parser.Item, ttype lexer.TokenType) bool {
 func Run(items []parser.Item, paths []string) error {
 	var inter interpreter
 
-	inter.initialize(paths)
+	items, functions := filterItems(items, func(item parser.Item) bool {
+		switch item.(type) {
+		case parser.FunctionDef:
+			return true
+		}
+		return false
+	})
 
 	items, begins := filterItems(items, func(item parser.Item) bool {
 		return specialFilter(item, lexer.Begin)
@@ -1101,6 +1164,8 @@ func Run(items []parser.Item, paths []string) error {
 	_, ends := filterItems(items, func(item parser.Item) bool {
 		return specialFilter(item, lexer.End)
 	})
+
+	inter.initialize(paths, functions)
 
 	for _, beg := range begins {
 		patact := beg.(parser.PatternAction)
@@ -1133,12 +1198,12 @@ func (inter *interpreter) processNormals(normals []parser.Item, paths []string) 
 		return nil
 	}
 
-	inter.builtins["NR"] = awknumber(1)
-	argv := inter.builtins["ARGV"].(awkarray)
+	inter.global["NR"] = awknumber(1)
+	argv := inter.global["ARGV"].(awkarray)
 	processed := false
-	for i := 1; i <= int(inter.toGoFloat(inter.builtins["ARGC"])); i++ {
+	for i := 1; i <= int(inter.toGoFloat(inter.global["ARGC"])); i++ {
 		filename := inter.toGoString(argv[fmt.Sprintf("%d", i)])
-		if i == int(inter.toGoFloat(inter.builtins["ARGC"])) && !processed || filename == "-" {
+		if i == int(inter.toGoFloat(inter.global["ARGC"])) && !processed || filename == "-" {
 			filename = "-"
 			err := inter.processFile(normals, os.Stdin)
 			if err != nil && err != io.EOF {
@@ -1166,7 +1231,7 @@ func (inter *interpreter) processNormals(normals []parser.Item, paths []string) 
 }
 
 func (inter *interpreter) getRsRune() rune {
-	rs := inter.toGoString(inter.builtins["RS"])
+	rs := inter.toGoString(inter.global["RS"])
 	if rs == "" {
 		rs = "\n"
 	}
@@ -1175,10 +1240,10 @@ func (inter *interpreter) getRsRune() rune {
 }
 
 func (inter *interpreter) processFile(normals []parser.Item, f *os.File) error {
-	inter.builtins["FILENAME"] = awknormalstring(f.Name())
+	inter.global["FILENAME"] = awknormalstring(f.Name())
 	inter.currentFile = bufio.NewReader(f)
 outer:
-	for inter.builtins["FNR"] = awknumber(1); ; inter.builtins["NR"], inter.builtins["FNR"] = inter.toNumber(inter.builtins["NR"])+1, inter.toNumber(inter.builtins["FNR"])+1 {
+	for inter.global["FNR"] = awknumber(1); ; inter.global["NR"], inter.global["FNR"] = inter.toNumber(inter.global["NR"])+1, inter.toNumber(inter.global["FNR"])+1 {
 		text, err := nextRecord(inter.currentFile, inter.getRsRune())
 		if err != nil {
 			return err

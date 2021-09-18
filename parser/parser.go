@@ -55,6 +55,52 @@ func (ps *parser) itemList() ([]Item, error) {
 }
 
 func (ps *parser) item() (Item, error) {
+	switch ps.current.Type {
+	case lexer.Function:
+		return ps.functionItem()
+	default:
+		return ps.patternActionItem()
+	}
+}
+
+func (ps *parser) functionItem() (Item, error) {
+	ps.advance()
+	if !ps.eat(lexer.Identifier) {
+		return nil, ps.parseErrorAtCurrent("expected identifier after 'function'")
+	}
+	name := ps.previous
+	if !ps.eat(lexer.LeftParen) {
+		return nil, ps.parseErrorAtCurrent("expected '(' after function name")
+	}
+	args := make([]lexer.Token, 0)
+	for ps.eat(lexer.Identifier) {
+		if lexer.Builtinvars[ps.previous.Lexeme] {
+			return nil, ps.parseErrorAt(ps.previous, "cannot use built in variable as function parameter")
+		}
+		args = append(args, ps.previous)
+		if !ps.eat(lexer.Comma) {
+			break
+		}
+	}
+	if !ps.eat(lexer.RightParen) {
+		return nil, ps.parseErrorAtCurrent("expected ')' after argument list")
+	}
+	ps.skipNewLines()
+	if !ps.check(lexer.LeftCurly) {
+		return nil, ps.parseErrorAtCurrent("expected '{' before function body")
+	}
+	body, err := ps.blockStat()
+	if err != nil {
+		return nil, err
+	}
+	return FunctionDef{
+		Name: name,
+		Args: args,
+		Body: body,
+	}, nil
+}
+
+func (ps *parser) patternActionItem() (Item, error) {
 	begtok := ps.current
 	pat, err := ps.pattern()
 	if err != nil {
@@ -95,6 +141,7 @@ func (ps *parser) item() (Item, error) {
 	}
 	ps.eatTerminator()
 	return PatternAction{Pattern: pat, Action: act}, nil
+
 }
 
 func (ps *parser) pattern() (Pattern, error) {
