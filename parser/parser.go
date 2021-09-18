@@ -13,18 +13,18 @@ type parser struct {
 	previous   lexer.Token
 	inprint    bool
 	ingetline  bool
-	inparen    bool
+	parendepth int
 	nextable   bool
 	loopdepth  int
 	infunction bool
 }
 
 func (ps *parser) isInGetline() bool {
-	return ps.ingetline && !ps.inparen
+	return ps.ingetline && ps.parendepth == 0
 }
 
 func (ps *parser) isInPrint() bool {
-	return ps.inprint && !ps.inparen
+	return ps.inprint && ps.parendepth == 0
 }
 
 func GetSyntaxTree(lexer lexer.Lexer) ([]Item, error) {
@@ -612,7 +612,7 @@ func (ps *parser) pipeGetlineExpr() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !ps.inprint && ps.eat(lexer.Pipe) {
+	if !ps.isInPrint() && ps.eat(lexer.Pipe) {
 		op := ps.previous
 		if !ps.eat(lexer.Getline) {
 			return nil, ps.parseErrorAtCurrent("expected 'getline' after '|'")
@@ -1002,6 +1002,8 @@ func (ps *parser) termExpr() (Expr, error) {
 		sub, err = ps.groupingExpr()
 	case lexer.Close:
 		fallthrough
+	case lexer.Sqrt:
+		fallthrough
 	case lexer.Sprintf:
 		fallthrough
 	case lexer.Sin:
@@ -1031,6 +1033,8 @@ func (ps *parser) termExpr() (Expr, error) {
 			sub, err = IdExpr{
 				Id: id,
 			}, nil
+		} else {
+			return nil, ps.parseErrorAt(id, "unexpected builtin function name")
 		}
 	case lexer.Getline:
 		sub, err = ps.getlineExpr()
@@ -1063,8 +1067,8 @@ func (ps *parser) regexExpr() (Expr, error) {
 }
 
 func (ps *parser) callExpr(called lexer.Token) (Expr, error) {
-	ps.inparen = true
-	defer func() { ps.inparen = false }()
+	ps.parendepth++
+	defer func() { ps.parendepth-- }()
 	ps.eat(lexer.LeftParen)
 	exprs, err := ps.exprListEmpty(func() bool { return ps.check(lexer.RightParen) })
 	if err != nil {
@@ -1115,8 +1119,8 @@ func (ps *parser) getlineExpr() (Expr, error) {
 }
 
 func (ps *parser) groupingExpr() (Expr, error) {
-	ps.inparen = true
-	defer func() { ps.inparen = false }()
+	ps.parendepth++
+	defer func() { ps.parendepth-- }()
 	ps.advance()
 	var exprl []Expr
 	var err error

@@ -594,6 +594,8 @@ func (inter *interpreter) evalCall(ce parser.CallExpr) (awkvalue, error) {
 func (inter *interpreter) evalFunctionCall(fi parser.FunctionDef, args []parser.Expr) (awkvalue, error) {
 	subenv := newEnvironment()
 
+	linkarrays := map[string]string{}
+
 	for _, argtok := range fi.Args {
 		var arg parser.Expr
 		if len(args) > 0 {
@@ -605,6 +607,9 @@ func (inter *interpreter) evalFunctionCall(fi parser.FunctionDef, args []parser.
 			return nil, err
 		}
 		subenv.set(argtok.Lexeme, v)
+		if idexpr, ok := arg.(parser.IdExpr); ok && v == nil {
+			linkarrays[argtok.Lexeme] = idexpr.Id.Lexeme
+		}
 	}
 
 	for _, arg := range args {
@@ -618,12 +623,19 @@ func (inter *interpreter) evalFunctionCall(fi parser.FunctionDef, args []parser.
 	defer func() { inter.env = inter.env.calling }()
 
 	err := inter.execute(fi.Body)
+	var retval awkvalue
 	if errRet, ok := err.(errorReturn); ok {
-		return errRet.val, nil
+		retval = errRet.val
 	} else if err != nil {
 		return nil, err
 	}
-	return nil, nil
+	for local, calling := range linkarrays {
+		v := inter.env.get(local)
+		if _, ok := v.(awkarray); ok {
+			inter.env.calling.set(calling, v)
+		}
+	}
+	return retval, nil
 }
 
 func (inter *interpreter) evalIn(ine parser.InExpr) (awkvalue, error) {
@@ -759,7 +771,7 @@ func (inter *interpreter) evalOr(bb parser.BinaryBoolExpr) (awkvalue, error) {
 	}
 }
 
-func (inter *interpreter) compareValues(left, right awkvalue) int {
+func (inter *interpreter) compareValues(left, right awkvalue) float64 {
 	_, nsl := left.(awknumericstring)
 	_, nsr := right.(awknumericstring)
 
@@ -781,7 +793,7 @@ func (inter *interpreter) compareValues(left, right awkvalue) int {
 			return 1
 		}
 	}
-	return int(inter.toNumber(left)) - int(inter.toNumber(right))
+	return float64(inter.toNumber(left) - inter.toNumber(right))
 }
 
 func (inter *interpreter) evalUnary(u parser.UnaryExpr) (awkvalue, error) {
