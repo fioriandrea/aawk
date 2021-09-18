@@ -318,8 +318,6 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 		val, err = inter.evalBinary(v)
 	case parser.UnaryExpr:
 		val, err = inter.evalUnary(v)
-	case parser.GroupingExpr:
-		val, err = inter.eval(v.Expr)
 	case parser.NumberExpr:
 		val = inter.parseNumber(v)
 	case parser.StringExpr:
@@ -962,12 +960,15 @@ func (inter *interpreter) initialize(paths []string) {
 	inter.outfiles = newOutWriters()
 	inter.inprograms = newInReaders()
 	inter.infiles = newInReaders()
-	inter.currentFile = bufio.NewReader(os.Stdin)
 	inter.rng = NewRNG(0)
+	inter.currentFile = bufio.NewReader(os.Stdin)
 }
 
 func (inter *interpreter) cleanup() {
 	inter.outprograms.closeAll()
+	inter.outfiles.closeAll()
+	inter.inprograms.closeAll()
+	inter.infiles.closeAll()
 }
 
 func (inter *interpreter) runtimeError(tok lexer.Token, msg string) error {

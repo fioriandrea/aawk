@@ -46,11 +46,6 @@ type StringExpr struct {
 	Expr
 }
 
-type GroupingExpr struct {
-	InnerExpr Expr
-	Expr
-}
-
 type AssignExpr struct {
 	Left  LhsExpr
 	Equal lexer.Token
@@ -395,11 +390,10 @@ func (ps *parser) exprStat() (ExprStat, error) {
 }
 
 func (ps *parser) printStat() (PrintStat, error) {
+	ps.inprint = true
 	defer func() { ps.inprint = false }()
-
 	ps.eat(lexer.Print, lexer.Printf)
 	op := ps.previous
-	ps.inprint = true
 	exprs, err := ps.exprListEmpty(func() bool { return ps.checkEndOfPrintExprList() })
 	if err != nil {
 		return PrintStat{}, err
@@ -408,6 +402,12 @@ func (ps *parser) printStat() (PrintStat, error) {
 		exprlist, ok := exprs[0].(ExprList)
 		if ok {
 			exprs = exprlist
+		}
+	} else {
+		for _, expr := range exprs {
+			if _, isexprlist := expr.(ExprList); isexprlist {
+				return PrintStat{}, ps.parseErrorAt(op, "cannot have multiple expression lists in output statement")
+			}
 		}
 	}
 	var redir lexer.Token
@@ -797,32 +797,9 @@ func (ps *parser) andExpr() (Expr, error) {
 
 func (ps *parser) inExpr() (Expr, error) {
 	var left Expr
-	if ps.eat(lexer.LeftParen) {
-		ps.inparen = true
-		defer func() { ps.inparen = false }()
-		if ps.inprint {
-			ps.inprint = false
-			defer func() { ps.inprint = true }()
-		}
-		leftl, err := ps.exprList(func() bool { return ps.check(lexer.RightParen) })
-		if err != nil {
-			return nil, err
-		}
-		if !ps.eat(lexer.RightParen) {
-			return nil, ps.parseErrorAtCurrent("expected matching ')'")
-		}
-		left = ExprList(leftl)
-		if len(leftl) > 1 && !ps.check(lexer.In) {
-			return nil, ps.parseErrorAt(ps.previous, "expected 'in' after index list")
-		} else if !ps.check(lexer.In) {
-			left = leftl[0]
-		}
-	} else {
-		var err error
-		left, err = ps.comparisonExpr()
-		if err != nil {
-			return nil, err
-		}
+	left, err := ps.comparisonExpr()
+	if err != nil {
+		return nil, err
 	}
 	for ps.eat(lexer.In) {
 		op := ps.previous
@@ -839,6 +816,9 @@ func (ps *parser) inExpr() (Expr, error) {
 			Op:    op,
 			Right: id,
 		}
+	}
+	if _, isexplist := left.(ExprList); isexplist && !ps.isInPrint() {
+		return nil, ps.parseErrorAtCurrent("expected 'in'")
 	}
 	return left, nil
 }
@@ -1040,25 +1020,7 @@ func (ps *parser) termExpr() (Expr, error) {
 		}, nil
 		ps.advance()
 	case lexer.LeftParen:
-		ps.inparen = true
-		defer func() { ps.inparen = false }()
-		if ps.inprint {
-			ps.advance()
-			var exprl []Expr
-			exprl, err = ps.exprList(func() bool { return ps.check(lexer.RightParen) })
-			if err != nil {
-				break
-			}
-			if !ps.eat(lexer.RightParen) {
-				sub, err = nil, ps.parseErrorAtCurrent("expected closing ')'")
-			} else if len(exprl) == 1 {
-				sub, err = exprl[0], nil
-			} else {
-				sub, err = ExprList(exprl), nil
-			}
-		} else {
-			sub, err = ps.groupingExpr()
-		}
+		sub, err = ps.groupingExpr()
 	case lexer.Close:
 		fallthrough
 	case lexer.Sprintf:
@@ -1085,8 +1047,6 @@ func (ps *parser) termExpr() (Expr, error) {
 		if id.Type == lexer.Identifier && ps.eat(lexer.LeftSquare) {
 			sub, err = ps.insideIndexing(id)
 		} else if ps.eat(lexer.LeftParen) {
-			ps.inparen = true
-			defer func() { ps.inparen = false }()
 			sub, err = ps.callExpr(id)
 		} else if id.Type == lexer.Identifier {
 			sub, err = IdExpr{
@@ -1109,6 +1069,8 @@ func (ps *parser) termExpr() (Expr, error) {
 }
 
 func (ps *parser) callExpr(called lexer.Token) (Expr, error) {
+	ps.inparen = true
+	defer func() { ps.inparen = false }()
 	ps.eat(lexer.LeftParen)
 	exprs, err := ps.exprListEmpty(func() bool { return ps.check(lexer.RightParen) })
 	if err != nil {
@@ -1159,18 +1121,22 @@ func (ps *parser) getlineExpr() (Expr, error) {
 }
 
 func (ps *parser) groupingExpr() (Expr, error) {
+	ps.inparen = true
+	defer func() { ps.inparen = false }()
 	ps.advance()
-	expr, err := ps.expr()
+	var exprl []Expr
+	var err error
+	exprl, err = ps.exprList(func() bool { return ps.check(lexer.RightParen) })
 	if err != nil {
 		return nil, err
 	}
-	toret := GroupingExpr{
-		Expr: expr,
-	}
 	if !ps.eat(lexer.RightParen) {
-		return nil, ps.parseErrorAtCurrent("expected ')'")
+		return nil, ps.parseErrorAtCurrent("expected closing ')'")
+	} else if len(exprl) == 1 {
+		return exprl[0], nil
+	} else {
+		return ExprList(exprl), nil
 	}
-	return toret, nil
 }
 
 func (ps *parser) insideIndexing(id lexer.Token) (Expr, error) {
