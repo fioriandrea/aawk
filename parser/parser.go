@@ -771,30 +771,6 @@ func (ps *parser) matchExpr() (Expr, error) {
 			Right: right,
 		}
 	}
-	if re, ok := left.(RegexExpr); ok {
-		left = MatchExpr{
-			Left: DollarExpr{
-				Dollar: lexer.Token{
-					Lexeme: "$",
-					Type:   lexer.Dollar,
-					Line:   re.Regex.Line,
-				},
-				Field: NumberExpr{
-					Num: lexer.Token{
-						Lexeme: "0",
-						Type:   lexer.Number,
-						Line:   re.Regex.Line,
-					},
-				},
-			},
-			Op: lexer.Token{
-				Lexeme: "~",
-				Type:   lexer.Match,
-				Line:   re.Regex.Line,
-			},
-			Right: re,
-		}
-	}
 	return left, nil
 }
 

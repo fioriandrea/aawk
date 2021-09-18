@@ -406,6 +406,8 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 		val, err = inter.evalIn(v)
 	case parser.MatchExpr:
 		val, err = inter.evalMatchExpr(v)
+	case parser.RegexExpr:
+		val, err = inter.evalRegexExpr(v)
 	}
 	return val, err
 }
@@ -648,6 +650,32 @@ func (inter *interpreter) evalIn(ine parser.InExpr) (awkvalue, error) {
 	} else {
 		return awknumber(0), nil
 	}
+}
+
+func (inter *interpreter) evalRegexExpr(re parser.RegexExpr) (awkvalue, error) {
+	expr := parser.MatchExpr{
+		Left: parser.DollarExpr{
+			Dollar: lexer.Token{
+				Lexeme: "$",
+				Type:   lexer.Dollar,
+				Line:   re.Regex.Line,
+			},
+			Field: parser.NumberExpr{
+				Num: lexer.Token{
+					Lexeme: "0",
+					Type:   lexer.Number,
+					Line:   re.Regex.Line,
+				},
+			},
+		},
+		Op: lexer.Token{
+			Lexeme: "~",
+			Type:   lexer.Match,
+			Line:   re.Regex.Line,
+		},
+		Right: re,
+	}
+	return inter.evalMatchExpr(expr)
 }
 
 func (inter *interpreter) evalMatchExpr(me parser.MatchExpr) (awkvalue, error) {
