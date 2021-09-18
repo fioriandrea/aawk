@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -14,6 +15,10 @@ import (
 	"github.com/fioriandrea/aawk/lexer"
 	"github.com/fioriandrea/aawk/parser"
 )
+
+var ErrNext = errors.New("next")
+var ErrBreak = errors.New("break")
+var ErrContinue = errors.New("continue")
 
 type awkvalue interface {
 	isValue()
@@ -99,6 +104,12 @@ func (inter *interpreter) execute(stat parser.Stat) error {
 		return inter.executeForStat(v)
 	case parser.ForEachStat:
 		return inter.executeForEachStat(v)
+	case parser.NextStat:
+		return ErrNext
+	case parser.BreakStat:
+		return ErrBreak
+	case parser.ContinueStat:
+		return ErrContinue
 	}
 	return nil
 }
@@ -280,7 +291,9 @@ func (inter *interpreter) executeForStat(fs parser.ForStat) error {
 			break
 		}
 		err = inter.execute(fs.Body)
-		if err != nil {
+		if err == ErrBreak {
+			break
+		} else if err != nil && err != ErrContinue {
 			return err
 		}
 		err = inter.execute(fs.Inc)
@@ -303,7 +316,9 @@ func (inter *interpreter) executeForEachStat(fes parser.ForEachStat) error {
 			return err
 		}
 		err = inter.execute(fes.Body)
-		if err != nil {
+		if err == ErrBreak {
+			break
+		} else if err != nil && err != ErrContinue {
 			return err
 		}
 	}
@@ -1113,8 +1128,8 @@ func (inter *interpreter) getRsRune() rune {
 
 func (inter *interpreter) processFile(normals []parser.Item, f *os.File) error {
 	inter.currentFile = bufio.NewReader(f)
-	inter.builtins["FNR"] = awknumber(1)
-	for {
+outer:
+	for inter.builtins["FNR"] = awknumber(1); ; inter.builtins["NR"], inter.builtins["FNR"] = inter.toNumber(inter.builtins["NR"])+1, inter.toNumber(inter.builtins["FNR"])+1 {
 		text, err := nextRecord(inter.currentFile, inter.getRsRune())
 		if err != nil {
 			return err
@@ -1129,12 +1144,13 @@ func (inter *interpreter) processFile(normals []parser.Item, f *os.File) error {
 			}
 			if isTruthy(res) {
 				err := inter.execute(patact.Action)
+				if err == ErrNext {
+					continue outer
+				}
 				if err != nil {
 					return err
 				}
 			}
 		}
-		inter.builtins["NR"] = inter.toNumber(inter.builtins["NR"]) + 1
-		inter.builtins["FNR"] = inter.toNumber(inter.builtins["FNR"]) + 1
 	}
 }

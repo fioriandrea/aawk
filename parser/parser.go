@@ -166,6 +166,21 @@ type ForEachStat struct {
 	Stat
 }
 
+type NextStat struct {
+	Next lexer.Token
+	Stat
+}
+
+type BreakStat struct {
+	Break lexer.Token
+	Stat
+}
+
+type ContinueStat struct {
+	Continue lexer.Token
+	Stat
+}
+
 type BlockStat []Stat
 
 func (bs BlockStat) isStat() {}
@@ -207,6 +222,8 @@ type parser struct {
 	inprint   bool
 	ingetline bool
 	inparen   bool
+	nextable  bool
+	loopdepth int
 }
 
 func (ps *parser) isInGetline() bool {
@@ -292,9 +309,11 @@ func (ps *parser) pattern() (Pattern, error) {
 	case lexer.Begin:
 		fallthrough
 	case lexer.End:
+		ps.nextable = false
 		ps.advance()
 		return SpecialPattern{Type: ps.previous}, nil
 	default:
+		ps.nextable = true
 		if ps.check(lexer.LeftCurly) {
 			return nil, nil
 		}
@@ -320,6 +339,52 @@ func (ps *parser) blockStat() (BlockStat, error) {
 		return nil, err
 	}
 	return ret, nil
+}
+
+func (ps *parser) checkAllowedAfterNexts() bool {
+	return ps.checkTerminator() || ps.check(lexer.RightCurly)
+}
+
+func (ps *parser) nextStat() (NextStat, error) {
+	ps.eat(lexer.Next)
+	op := ps.previous
+	if !ps.nextable {
+		return NextStat{}, ps.parseErrorAt(op, "cannot use 'next' inside BEGIN or END")
+	}
+	if !ps.checkAllowedAfterNexts() {
+		return NextStat{}, ps.parseErrorAtCurrent("unexpected token")
+	}
+	return NextStat{
+		Next: op,
+	}, nil
+}
+
+func (ps *parser) breakStat() (BreakStat, error) {
+	ps.eat(lexer.Break)
+	op := ps.previous
+	if ps.loopdepth == 0 {
+		return BreakStat{}, ps.parseErrorAt(op, "cannot have break outside loop")
+	}
+	if !ps.checkAllowedAfterNexts() {
+		return BreakStat{}, ps.parseErrorAtCurrent("unexpected token")
+	}
+	return BreakStat{
+		Break: op,
+	}, nil
+}
+
+func (ps *parser) continueStat() (ContinueStat, error) {
+	ps.eat(lexer.Continue)
+	op := ps.previous
+	if ps.loopdepth == 0 {
+		return ContinueStat{}, ps.parseErrorAt(op, "cannot have continue outside loop")
+	}
+	if !ps.checkAllowedAfterNexts() {
+		return ContinueStat{}, ps.parseErrorAtCurrent("unexpected token")
+	}
+	return ContinueStat{
+		Continue: op,
+	}, nil
 }
 
 func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, error) {
@@ -355,6 +420,12 @@ func (ps *parser) stat() (Stat, error) {
 		stat, err = ps.forStat()
 	case lexer.LeftCurly:
 		stat, err = ps.blockStat()
+	case lexer.Next:
+		stat, err = ps.nextStat()
+	case lexer.Break:
+		stat, err = ps.breakStat()
+	case lexer.Continue:
+		stat, err = ps.continueStat()
 	case lexer.Semicolon:
 		fallthrough
 	case lexer.Newline:
@@ -467,6 +538,8 @@ func (ps *parser) ifStat() (IfStat, error) {
 }
 
 func (ps *parser) whileStat() (ForStat, error) {
+	ps.loopdepth++
+	defer func() { ps.loopdepth-- }()
 	ps.eat(lexer.While)
 	op := ps.previous
 	if !ps.eat(lexer.LeftParen) {
@@ -492,6 +565,8 @@ func (ps *parser) whileStat() (ForStat, error) {
 }
 
 func (ps *parser) doWhileStat() (Stat, error) {
+	ps.loopdepth++
+	defer func() { ps.loopdepth-- }()
 	ps.eat(lexer.Do)
 	body, err := ps.stat()
 	if err != nil {
@@ -522,6 +597,8 @@ func (ps *parser) doWhileStat() (Stat, error) {
 }
 
 func (ps *parser) forStat() (Stat, error) {
+	ps.loopdepth++
+	defer func() { ps.loopdepth-- }()
 	var err error
 	ps.eat(lexer.For)
 	op := ps.previous
