@@ -295,6 +295,16 @@ func (s ContinueStat) Token() lexer.Token {
 	return s.Continue
 }
 
+type ReturnStat struct {
+	Return    lexer.Token
+	ReturnVal Expr
+	Stat
+}
+
+func (s ReturnStat) Token() lexer.Token {
+	return s.Return
+}
+
 type BlockStat []Stat
 
 func (bs BlockStat) isStat() {}

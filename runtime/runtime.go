@@ -20,6 +20,14 @@ var ErrNext = errors.New("next")
 var ErrBreak = errors.New("break")
 var ErrContinue = errors.New("continue")
 
+type errorReturn struct {
+	val awkvalue
+}
+
+func (er errorReturn) Error() string {
+	return "return"
+}
+
 type awkvalue interface {
 	isValue()
 }
@@ -135,6 +143,8 @@ func (inter *interpreter) execute(stat parser.Stat) error {
 		return ErrBreak
 	case parser.ContinueStat:
 		return ErrContinue
+	case parser.ReturnStat:
+		return inter.executeReturnStat(v)
 	}
 	return nil
 }
@@ -348,6 +358,16 @@ func (inter *interpreter) executeForEachStat(fes parser.ForEachStat) error {
 		}
 	}
 	return nil
+}
+
+func (inter *interpreter) executeReturnStat(rs parser.ReturnStat) error {
+	v, err := inter.eval(rs.ReturnVal)
+	if err != nil {
+		return err
+	}
+	return errorReturn{
+		val: v,
+	}
 }
 
 func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
@@ -596,7 +616,9 @@ func (inter *interpreter) evalFunctionCall(fi parser.FunctionDef, args []parser.
 	defer func() { inter.env = inter.env.calling }()
 
 	err := inter.execute(fi.Body)
-	if err != nil {
+	if errRet, ok := err.(errorReturn); ok {
+		return errRet.val, nil
+	} else if err != nil {
 		return nil, err
 	}
 	return nil, nil

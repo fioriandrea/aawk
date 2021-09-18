@@ -8,14 +8,15 @@ import (
 )
 
 type parser struct {
-	lexer     lexer.Lexer
-	current   lexer.Token
-	previous  lexer.Token
-	inprint   bool
-	ingetline bool
-	inparen   bool
-	nextable  bool
-	loopdepth int
+	lexer      lexer.Lexer
+	current    lexer.Token
+	previous   lexer.Token
+	inprint    bool
+	ingetline  bool
+	inparen    bool
+	nextable   bool
+	loopdepth  int
+	infunction bool
 }
 
 func (ps *parser) isInGetline() bool {
@@ -64,6 +65,8 @@ func (ps *parser) item() (Item, error) {
 }
 
 func (ps *parser) functionItem() (Item, error) {
+	ps.infunction = true
+	defer func() { ps.infunction = false }()
 	ps.advance()
 	if !ps.eat(lexer.Identifier) {
 		return nil, ps.parseErrorAtCurrent("expected identifier after 'function'")
@@ -242,6 +245,26 @@ func (ps *parser) continueStat() (ContinueStat, error) {
 	}, nil
 }
 
+func (ps *parser) returnStat() (ReturnStat, error) {
+	ps.eat(lexer.Return)
+	op := ps.previous
+	if !ps.infunction {
+		return ReturnStat{}, ps.parseErrorAt(op, "cannot have return outside a function")
+	}
+	var expr Expr
+	if !ps.checkEndOfReturn() {
+		var err error
+		expr, err = ps.expr()
+		if err != nil {
+			return ReturnStat{}, err
+		}
+	}
+	return ReturnStat{
+		Return:    op,
+		ReturnVal: expr,
+	}, nil
+}
+
 func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, error) {
 	ps.skipNewLines()
 	stats := make([]Stat, 0)
@@ -281,6 +304,8 @@ func (ps *parser) stat() (Stat, error) {
 		stat, err = ps.breakStat()
 	case lexer.Continue:
 		stat, err = ps.continueStat()
+	case lexer.Return:
+		stat, err = ps.returnStat()
 	case lexer.Semicolon:
 		fallthrough
 	case lexer.Newline:
@@ -1224,4 +1249,8 @@ func (ps *parser) checkEndOfPrintExprList() bool {
 	// stop at rightcurly (e.g. {print "a"}), rightparen (end of func args), pipe , doublegreater and greater (redir)
 	// cannot just check for comma presence because {print "a" print "b"} would pass
 	return ps.checkTerminator() || ps.check(lexer.RightCurly, lexer.RightParen, lexer.RightSquare, lexer.Pipe, lexer.DoubleGreater, lexer.Greater)
+}
+
+func (ps *parser) checkEndOfReturn() bool {
+	return ps.check(lexer.RightCurly) || ps.checkTerminator()
 }
