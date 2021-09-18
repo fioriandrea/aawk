@@ -295,7 +295,7 @@ func (inter *interpreter) executeForEachStat(fes parser.ForEachStat) error {
 		return inter.runtimeError(fes.Array.Id, "cannot do for each on a non array")
 	}
 	for k := range arr {
-		err := inter.setVariable(fes.Id.Id.Lexeme, fes.Id.Id, arr[k])
+		err := inter.setVariable(fes.Id.Id.Lexeme, fes.Id.Id, awknormalstring(k))
 		if err != nil {
 			return err
 		}
@@ -928,6 +928,13 @@ func (inter *interpreter) initBuiltInVars(paths []string) {
 	}
 	inter.builtins["ARGC"] = awknumber(argc)
 	inter.builtins["ARGV"] = awkarray(argv)
+
+	environ := awkarray{}
+	for _, envpair := range os.Environ() {
+		splits := strings.Split(envpair, "=")
+		environ[splits[0]] = awknumericstring(splits[1])
+	}
+	inter.builtins["ENVIRON"] = environ
 }
 
 func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
