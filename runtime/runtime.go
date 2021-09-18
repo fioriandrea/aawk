@@ -96,6 +96,8 @@ func (inter *interpreter) execute(stat parser.Stat) error {
 		return inter.executeIfStat(v)
 	case parser.ForStat:
 		return inter.executeForStat(v)
+	case parser.ForEachStat:
+		return inter.executeForEachStat(v)
 	}
 	return nil
 }
@@ -279,6 +281,25 @@ func (inter *interpreter) executeForStat(fs parser.ForStat) error {
 			return err
 		}
 		err = inter.execute(fs.Inc)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (inter *interpreter) executeForEachStat(fes parser.ForEachStat) error {
+	arrv := inter.getVariable(fes.Array.Id.Lexeme)
+	arr, isarr := arrv.(awkarray)
+	if !isarr {
+		return inter.runtimeError(fes.Array.Id, "cannot do for each on a non array")
+	}
+	for k := range arr {
+		err := inter.setVariable(fes.Id.Id.Lexeme, fes.Id.Id, arr[k])
+		if err != nil {
+			return err
+		}
+		err = inter.execute(fes.Body)
 		if err != nil {
 			return err
 		}

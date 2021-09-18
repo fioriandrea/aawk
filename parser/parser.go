@@ -162,6 +162,15 @@ type ForStat struct {
 	Stat
 }
 
+type ForEachStat struct {
+	For   lexer.Token
+	Id    IdExpr
+	In    lexer.Token
+	Array IdExpr
+	Body  Stat
+	Stat
+}
+
 type BlockStat []Stat
 
 func (bs BlockStat) isStat() {}
@@ -512,7 +521,7 @@ func (ps *parser) doWhileStat() (Stat, error) {
 	}), nil
 }
 
-func (ps *parser) forStat() (ForStat, error) {
+func (ps *parser) forStat() (Stat, error) {
 	var err error
 	ps.eat(lexer.For)
 	op := ps.previous
@@ -524,6 +533,9 @@ func (ps *parser) forStat() (ForStat, error) {
 		init, err = ps.simpleStat()
 		if err != nil {
 			return ForStat{}, err
+		}
+		if ps.eat(lexer.RightParen) {
+			return ps.finishForEachStat(op, init)
 		}
 	}
 	if !ps.eat(lexer.Semicolon) {
@@ -572,6 +584,35 @@ func (ps *parser) forStat() (ForStat, error) {
 		Inc:  inc,
 		Body: body,
 	}, nil
+}
+
+func (ps *parser) finishForEachStat(fortok lexer.Token, init Stat) (ForEachStat, error) {
+	ps.eat(lexer.RightParen)
+	rparen := ps.previous
+	exprstat, isexprstat := init.(ExprStat)
+	if !isexprstat {
+		return ForEachStat{}, ps.parseErrorAt(rparen, "expected ';'")
+	}
+	inexpr, isinexpr := exprstat.Expr.(InExpr)
+	if !isinexpr {
+		return ForEachStat{}, ps.parseErrorAt(rparen, "expected ';'")
+	}
+	id, isid := inexpr.Left.(IdExpr)
+	if !isid {
+		return ForEachStat{}, ps.parseErrorAt(rparen, "expected ';'")
+	}
+	body, err := ps.stat()
+	if err != nil {
+		return ForEachStat{}, err
+	}
+	return ForEachStat{
+		For:   fortok,
+		Id:    id,
+		In:    inexpr.Op,
+		Array: inexpr.Right,
+		Body:  body,
+	}, nil
+
 }
 
 func (ps *parser) exprListEmpty(eolfn func() bool) ([]Expr, error) {
