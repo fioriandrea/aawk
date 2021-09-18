@@ -78,16 +78,17 @@ func NewRNG(seed int64) RNG {
 }
 
 type interpreter struct {
-	env         environment
-	builtins    map[string]awkvalue
-	fields      []awkvalue
-	outprograms outwriters
-	outfiles    outwriters
-	currentFile io.RuneReader
-	inprograms  inreaders
-	infiles     inreaders
-	rng         RNG
-	inprint     bool
+	env          environment
+	builtins     map[string]awkvalue
+	fields       []awkvalue
+	outprograms  outwriters
+	outfiles     outwriters
+	currentFile  io.RuneReader
+	inprograms   inreaders
+	infiles      inreaders
+	rng          RNG
+	inprint      bool
+	rangematched map[int]bool
 }
 
 func (inter *interpreter) execute(stat parser.Stat) error {
@@ -977,6 +978,7 @@ func (inter *interpreter) initialize(paths []string) {
 	inter.infiles = newInReaders()
 	inter.rng = NewRNG(0)
 	inter.currentFile = bufio.NewReader(os.Stdin)
+	inter.rangematched = map[int]bool{}
 }
 
 func (inter *interpreter) cleanup() {
@@ -1043,6 +1045,8 @@ func Run(items []parser.Item, paths []string) error {
 		case parser.PatternAction:
 			switch v.Pattern.(type) {
 			case parser.ExprPattern:
+				return true
+			case parser.RangePattern:
 				return true
 			}
 		}
@@ -1112,7 +1116,6 @@ func (inter *interpreter) processNormals(normals []parser.Item, paths []string) 
 				return err
 			}
 		}
-		inter.builtins["FILENAME"] = awknormalstring(filename)
 	}
 	return nil
 }
@@ -1127,6 +1130,7 @@ func (inter *interpreter) getRsRune() rune {
 }
 
 func (inter *interpreter) processFile(normals []parser.Item, f *os.File) error {
+	inter.builtins["FILENAME"] = awknormalstring(f.Name())
 	inter.currentFile = bufio.NewReader(f)
 outer:
 	for inter.builtins["FNR"] = awknumber(1); ; inter.builtins["NR"], inter.builtins["FNR"] = inter.toNumber(inter.builtins["NR"])+1, inter.toNumber(inter.builtins["FNR"])+1 {
@@ -1135,14 +1139,38 @@ outer:
 			return err
 		}
 		inter.processInputRecord(text)
-		for _, normal := range normals {
+		for i, normal := range normals {
 			patact := normal.(parser.PatternAction)
-			pat := patact.Pattern.(parser.ExprPattern)
-			res, err := inter.eval(pat.Expr)
-			if err != nil {
-				return err
+			var toexecute bool
+			switch pat := patact.Pattern.(type) {
+			case parser.ExprPattern:
+				res, err := inter.eval(pat.Expr)
+				if err != nil {
+					return err
+				}
+				toexecute = isTruthy(res)
+			case parser.RangePattern:
+				if inter.rangematched[i] {
+					res, err := inter.eval(pat.Expr1)
+					if err != nil {
+						return err
+					}
+					if isTruthy(res) {
+						delete(inter.rangematched, i)
+					}
+					toexecute = true
+				} else {
+					res, err := inter.eval(pat.Expr0)
+					if err != nil {
+						return err
+					}
+					if isTruthy(res) {
+						toexecute = true
+						inter.rangematched[i] = true
+					}
+				}
 			}
-			if isTruthy(res) {
+			if toexecute {
 				err := inter.execute(patact.Action)
 				if err == ErrNext {
 					continue outer

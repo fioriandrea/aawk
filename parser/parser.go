@@ -215,6 +215,12 @@ type ExprPattern struct {
 	Pattern
 }
 
+type RangePattern struct {
+	Expr0 Expr
+	Expr1 Expr
+	Pattern
+}
+
 type parser struct {
 	lexer     lexer.Lexer
 	current   lexer.Token
@@ -252,6 +258,7 @@ func (ps *parser) itemList() ([]Item, error) {
 	for ps.current.Type != lexer.Eof {
 		item, err := ps.item()
 		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
 			return nil, err
 		}
 		items = append(items, item)
@@ -290,7 +297,7 @@ func (ps *parser) item() (Item, error) {
 		if act == nil {
 			return nil, ps.parseErrorAt(begtok, "special pattern must have an action")
 		}
-	case ExprPattern:
+	default:
 		if act == nil {
 			begtok.Type = lexer.Print
 			act = BlockStat{
@@ -320,6 +327,19 @@ func (ps *parser) pattern() (Pattern, error) {
 		res, err := ps.expr()
 		if err != nil {
 			return nil, err
+		}
+		if ps.eat(lexer.Comma) {
+			if ps.check(lexer.LeftCurly) {
+				return nil, ps.parseErrorAt(ps.previous, "expected pattern")
+			}
+			res1, err := ps.expr()
+			if err != nil {
+				return nil, err
+			}
+			return RangePattern{
+				Expr0: res,
+				Expr1: res1,
+			}, nil
 		}
 		return ExprPattern{
 			Expr: res,
