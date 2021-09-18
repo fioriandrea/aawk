@@ -15,6 +15,17 @@ func getExprAtOrNil(i int, exprs []parser.Expr) parser.Expr {
 	return exprs[i]
 }
 
+func (inter *interpreter) evalLength(ce parser.CallExpr) (awkvalue, error) {
+	if len(ce.Args) > 1 {
+		return nil, inter.runtimeError(ce.Called, "too may arguments")
+	}
+	strv, err := inter.eval(getExprAtOrNil(0, ce.Args))
+	if err != nil {
+		return nil, err
+	}
+	return awknumber(len([]rune(inter.toGoString(strv)))), nil
+}
+
 func (inter *interpreter) evalClose(ce parser.CallExpr) (awkvalue, error) {
 	file, err := inter.eval(getExprAtOrNil(0, ce.Args))
 	if err != nil {

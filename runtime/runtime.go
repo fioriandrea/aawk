@@ -562,6 +562,8 @@ func (inter *interpreter) evalCall(ce parser.CallExpr) (awkvalue, error) {
 	switch called.Type {
 	case lexer.Close:
 		return inter.evalClose(ce)
+	case lexer.Length:
+		return inter.evalLength(ce)
 	case lexer.Sprintf:
 		return inter.evalSprintf(ce)
 	case lexer.Sqrt:

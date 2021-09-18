@@ -1002,6 +1002,8 @@ func (ps *parser) termExpr() (Expr, error) {
 		sub, err = ps.groupingExpr()
 	case lexer.Close:
 		fallthrough
+	case lexer.Length:
+		fallthrough
 	case lexer.Sqrt:
 		fallthrough
 	case lexer.Sprintf:

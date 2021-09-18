@@ -74,6 +74,7 @@ const (
 	If
 	In
 	Int
+	Length
 	Log
 	Next
 	Print
@@ -136,6 +137,7 @@ var keywords = map[string]TokenType{
 	"if":       If,
 	"in":       In,
 	"int":      Int,
+	"length":   Length,
 	"log":      Log,
 	"next":     Next,
 	"printf":   Printf,
