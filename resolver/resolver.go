@@ -146,6 +146,8 @@ func (res *resolver) stat(s parser.Stat) (parser.Stat, error) {
 		return res.exprStat(ss)
 	case parser.ExitStat:
 		return res.exitStat(ss)
+	case parser.DeleteStat:
+		return res.deleteStat(ss)
 	}
 	return s, nil
 }
@@ -233,6 +235,12 @@ func (res *resolver) exitStat(ex parser.ExitStat) (parser.ExitStat, error) {
 	var err error
 	ex.Status, err = res.expr(ex.Status)
 	return ex, err
+}
+
+func (res *resolver) deleteStat(ds parser.DeleteStat) (parser.DeleteStat, error) {
+	var err error
+	ds.Lhs, err = res.lhsExpr(ds.Lhs)
+	return ds, err
 }
 
 func (res *resolver) expr(ex parser.Expr) (parser.Expr, error) {

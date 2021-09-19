@@ -135,6 +135,8 @@ func (inter *interpreter) execute(stat parser.Stat) error {
 		return inter.executeReturn(v)
 	case parser.ExitStat:
 		return inter.executeExit(v)
+	case parser.DeleteStat:
+		return inter.executeDelete(v)
 	}
 	return nil
 }
@@ -295,6 +297,31 @@ func (inter *interpreter) executeExit(es parser.ExitStat) error {
 	return ErrorExit{
 		Status: int(inter.toGoFloat(v)),
 	}
+}
+
+func (inter *interpreter) executeDelete(ds parser.DeleteStat) error {
+	switch lhs := ds.Lhs.(type) {
+	case parser.IndexingExpr:
+		v := inter.getVariable(lhs.Id)
+		varr, ok := v.(awkarray)
+		if !ok {
+			return inter.runtimeError(lhs.Token(), "cannot index a scalar")
+		}
+		ind, err := inter.evalIndex(lhs.Index)
+		if err != nil {
+			return err
+		}
+		delete(varr, inter.toGoString(ind))
+		return nil
+	case parser.IdExpr:
+		v := inter.getVariable(lhs)
+		_, ok := v.(awkarray)
+		if !ok {
+			return inter.runtimeError(lhs.Token(), "cannot index a scalar")
+		}
+		inter.setVariable(lhs, awkarray{})
+	}
+	return nil
 }
 
 func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {

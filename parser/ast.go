@@ -234,6 +234,16 @@ func (s PrintStat) Token() lexer.Token {
 	return s.Print
 }
 
+type DeleteStat struct {
+	Delete lexer.Token
+	Lhs    LhsExpr
+	Stat
+}
+
+func (s DeleteStat) Token() lexer.Token {
+	return s.Delete
+}
+
 type IfStat struct {
 	If       lexer.Token
 	Cond     Expr

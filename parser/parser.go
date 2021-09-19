@@ -260,7 +260,7 @@ func (ps *parser) nextStat() (NextStat, error) {
 	if !ps.nextable {
 		return NextStat{}, ps.parseErrorAt(op, "cannot use 'next' inside BEGIN or END")
 	}
-	if !ps.checkAllowedAfterNexts() {
+	if !ps.checkAllowedAfterStatements() {
 		return NextStat{}, ps.parseErrorAtCurrent("unexpected token after 'next'")
 	}
 	return NextStat{
@@ -274,7 +274,7 @@ func (ps *parser) breakStat() (BreakStat, error) {
 	if ps.loopdepth == 0 {
 		return BreakStat{}, ps.parseErrorAt(op, "cannot have break outside loop")
 	}
-	if !ps.checkAllowedAfterNexts() {
+	if !ps.checkAllowedAfterStatements() {
 		return BreakStat{}, ps.parseErrorAtCurrent("unexpected token after 'break'")
 	}
 	return BreakStat{
@@ -288,7 +288,7 @@ func (ps *parser) continueStat() (ContinueStat, error) {
 	if ps.loopdepth == 0 {
 		return ContinueStat{}, ps.parseErrorAt(op, "cannot have continue outside loop")
 	}
-	if !ps.checkAllowedAfterNexts() {
+	if !ps.checkAllowedAfterStatements() {
 		return ContinueStat{}, ps.parseErrorAtCurrent("unexpected token after 'continue'")
 	}
 	return ContinueStat{
@@ -303,12 +303,15 @@ func (ps *parser) returnStat() (ReturnStat, error) {
 		return ReturnStat{}, ps.parseErrorAt(op, "cannot have return outside a function")
 	}
 	var expr Expr
-	if !ps.checkEndOfReturns() {
+	if !ps.checkAllowedAfterStatements() {
 		var err error
 		expr, err = ps.expr()
 		if err != nil {
 			return ReturnStat{}, err
 		}
+	}
+	if !ps.checkAllowedAfterStatements() {
+		return ReturnStat{}, ps.parseErrorAtCurrent("unexpected error after return statement")
 	}
 	return ReturnStat{
 		Return:    op,
@@ -320,12 +323,15 @@ func (ps *parser) exitStat() (ExitStat, error) {
 	ps.eat(lexer.Exit)
 	op := ps.previous
 	var expr Expr
-	if !ps.checkEndOfReturns() {
+	if !ps.checkAllowedAfterStatements() {
 		var err error
 		expr, err = ps.expr()
 		if err != nil {
 			return ExitStat{}, err
 		}
+	}
+	if !ps.checkAllowedAfterStatements() {
+		return ExitStat{}, ps.parseErrorAtCurrent("unexpected error after exit statement")
 	}
 	return ExitStat{
 		Exit:   op,
@@ -341,6 +347,8 @@ func (ps *parser) simpleStat() (Stat, error) {
 		fallthrough
 	case lexer.Printf:
 		stat, err = ps.printStat()
+	case lexer.Delete:
+		stat, err = ps.deleteStat()
 	default:
 		stat, err = ps.exprStat()
 	}
@@ -396,6 +404,26 @@ func (ps *parser) printStat() (PrintStat, error) {
 		Exprs:   exprs,
 		RedirOp: redir,
 		File:    file,
+	}, nil
+}
+
+func (ps *parser) deleteStat() (DeleteStat, error) {
+	ps.eat(lexer.Delete)
+	op := ps.previous
+	if !ps.check(lexer.Identifier) {
+		return DeleteStat{}, ps.parseErrorAtCurrent("expected name in after 'delete'")
+	}
+	expr, err := ps.termExpr()
+	if err != nil {
+		return DeleteStat{}, err
+	}
+	if !ps.checkAllowedAfterStatements() {
+		return DeleteStat{}, ps.parseErrorAtCurrent("unexpected error after delete statement")
+	}
+	lhs := expr.(LhsExpr)
+	return DeleteStat{
+		Delete: op,
+		Lhs:    lhs,
 	}, nil
 }
 
@@ -1228,10 +1256,6 @@ func (ps *parser) checkEndOfPrintExprList() bool {
 	return ps.checkTerminator() || ps.check(lexer.RightCurly, lexer.RightParen, lexer.RightSquare, lexer.Pipe, lexer.DoubleGreater, lexer.Greater)
 }
 
-func (ps *parser) checkEndOfReturns() bool {
-	return ps.check(lexer.RightCurly) || ps.checkTerminator()
-}
-
-func (ps *parser) checkAllowedAfterNexts() bool {
+func (ps *parser) checkAllowedAfterStatements() bool {
 	return ps.checkTerminator() || ps.check(lexer.RightCurly)
 }
