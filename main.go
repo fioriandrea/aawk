@@ -7,13 +7,14 @@ import (
 	"io"
 	"log"
 	"os"
+	"runtime"
 	"runtime/pprof"
 	"strings"
 
+	"github.com/fioriandrea/aawk/interpreter"
 	"github.com/fioriandrea/aawk/lexer"
 	"github.com/fioriandrea/aawk/parser"
 	"github.com/fioriandrea/aawk/resolver"
-	"github.com/fioriandrea/aawk/runtime"
 )
 
 func isFlagPassed(name string) bool {
@@ -28,6 +29,7 @@ func isFlagPassed(name string) bool {
 
 var filenamePath = flag.String("f", "", "awk program file")
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
+var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 
 func main() {
 	if len(os.Args[1:]) == 0 {
@@ -72,8 +74,8 @@ func main() {
 	}
 	fmt.Println(string(b))*/
 
-	builtinFunctions := make([]string, 0, len(runtime.Builtins))
-	for name, _ := range runtime.Builtins {
+	builtinFunctions := make([]string, 0, len(interpreter.Builtins))
+	for name, _ := range interpreter.Builtins {
 		builtinFunctions = append(builtinFunctions, name)
 	}
 	tree, globalindices, functionindices, err := resolver.ResolveVariables(tree, builtinFunctions)
@@ -82,8 +84,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = runtime.Run(tree, args, globalindices, functionindices)
-	if ee, ok := err.(runtime.ErrorExit); ok {
+	err = interpreter.Run(tree, args, globalindices, functionindices)
+
+	if isFlagPassed("memprofile") {
+		f, err := os.Create(*memprofile)
+		if err != nil {
+			log.Fatal("could not create memory profile: ", err)
+		}
+		defer f.Close() // error handling omitted for example
+		runtime.GC()    // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			log.Fatal("could not write memory profile: ", err)
+		}
+	}
+
+	if ee, ok := err.(interpreter.ErrorExit); ok {
 		os.Exit(ee.Status)
 	} else if err != nil {
 		fmt.Fprintln(os.Stderr, err)

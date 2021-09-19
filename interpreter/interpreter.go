@@ -1,4 +1,4 @@
-package runtime
+package interpreter
 
 import (
 	"bufio"
@@ -735,7 +735,7 @@ func (inter *interpreter) evalIncrement(inc parser.IncrementExpr) (awkvalue, awk
 		return nil, nil, err
 	}
 	val := inter.toNumber(varval)
-	var ival awkvalue
+	var ival awknumber
 	switch inc.Op.Type {
 	case lexer.Increment:
 		ival = val + 1
