@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"runtime/pprof"
 	"strings"
 
 	"github.com/fioriandrea/aawk/lexer"
@@ -25,12 +26,26 @@ func isFlagPassed(name string) bool {
 }
 
 var filenamePath = flag.String("f", "", "awk program file")
+var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
 
 func main() {
 	if len(os.Args[1:]) == 0 {
 		log.Fatal("TODO help")
 	}
 	flag.Parse()
+
+	if isFlagPassed("cpuprofile") {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+		defer f.Close()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
 	args := flag.Args()
 	var progreader io.RuneReader
 	if isFlagPassed("f") {

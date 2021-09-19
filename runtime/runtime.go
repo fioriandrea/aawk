@@ -133,17 +133,17 @@ type interpreter struct {
 func (inter *interpreter) execute(stat parser.Stat) error {
 	switch v := stat.(type) {
 	case parser.BlockStat:
-		return inter.executeBlockStat(v)
+		return inter.executeBlock(v)
 	case parser.ExprStat:
-		return inter.executeExprStat(v)
+		return inter.executeExpr(v)
 	case parser.PrintStat:
-		return inter.executePrintStat(v)
+		return inter.executePrint(v)
 	case parser.IfStat:
-		return inter.executeIfStat(v)
+		return inter.executeIf(v)
 	case parser.ForStat:
-		return inter.executeForStat(v)
+		return inter.executeFor(v)
 	case parser.ForEachStat:
-		return inter.executeForEachStat(v)
+		return inter.executeForEach(v)
 	case parser.NextStat:
 		return ErrNext
 	case parser.BreakStat:
@@ -151,12 +151,12 @@ func (inter *interpreter) execute(stat parser.Stat) error {
 	case parser.ContinueStat:
 		return ErrContinue
 	case parser.ReturnStat:
-		return inter.executeReturnStat(v)
+		return inter.executeReturn(v)
 	}
 	return nil
 }
 
-func (inter *interpreter) executeBlockStat(bs parser.BlockStat) error {
+func (inter *interpreter) executeBlock(bs parser.BlockStat) error {
 	for _, stat := range bs {
 		err := inter.execute(stat)
 		if err != nil {
@@ -166,12 +166,12 @@ func (inter *interpreter) executeBlockStat(bs parser.BlockStat) error {
 	return nil
 }
 
-func (inter *interpreter) executeExprStat(es parser.ExprStat) error {
+func (inter *interpreter) executeExpr(es parser.ExprStat) error {
 	_, err := inter.eval(es.Expr)
 	return err
 }
 
-func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
+func (inter *interpreter) executePrint(ps parser.PrintStat) error {
 	inter.inprint = true
 	defer func() { inter.inprint = false }()
 	var w io.Writer
@@ -193,14 +193,14 @@ func (inter *interpreter) executePrintStat(ps parser.PrintStat) error {
 	}
 	switch ps.Print.Type {
 	case lexer.Print:
-		return inter.executeSimplePrintStat(w, ps)
+		return inter.executeSimplePrint(w, ps)
 	case lexer.Printf:
-		return inter.executePrintfStat(w, ps)
+		return inter.executePrintf(w, ps)
 	}
 	return nil
 }
 
-func (inter *interpreter) executeSimplePrintStat(w io.Writer, ps parser.PrintStat) error {
+func (inter *interpreter) executeSimplePrint(w io.Writer, ps parser.PrintStat) error {
 	if ps.Exprs == nil {
 		fmt.Fprintf(w, "%s", inter.toGoString(inter.getField(0)))
 	} else {
@@ -220,6 +220,11 @@ func (inter *interpreter) executeSimplePrintStat(w io.Writer, ps parser.PrintSta
 	}
 	fmt.Fprintf(w, "%s", inter.toGoString(inter.globals["ORS"]))
 	return nil
+}
+
+func (inter *interpreter) executePrintf(w io.Writer, ps parser.PrintStat) error {
+	err := inter.fprintf(w, ps.Print, ps.Exprs)
+	return err
 }
 
 func (inter *interpreter) fprintfConversions(print lexer.Token, fmtstr string) ([]func(awkvalue) interface{}, error) {
@@ -295,12 +300,7 @@ func (inter *interpreter) fprintf(w io.Writer, print lexer.Token, exprs []parser
 	return nil
 }
 
-func (inter *interpreter) executePrintfStat(w io.Writer, ps parser.PrintStat) error {
-	err := inter.fprintf(w, ps.Print, ps.Exprs)
-	return err
-}
-
-func (inter *interpreter) executeIfStat(ifs parser.IfStat) error {
+func (inter *interpreter) executeIf(ifs parser.IfStat) error {
 	cond, err := inter.eval(ifs.Cond)
 	if err != nil {
 		return err
@@ -319,7 +319,7 @@ func (inter *interpreter) executeIfStat(ifs parser.IfStat) error {
 	return nil
 }
 
-func (inter *interpreter) executeForStat(fs parser.ForStat) error {
+func (inter *interpreter) executeFor(fs parser.ForStat) error {
 	err := inter.execute(fs.Init)
 	if err != nil {
 		return err
@@ -346,7 +346,7 @@ func (inter *interpreter) executeForStat(fs parser.ForStat) error {
 	return nil
 }
 
-func (inter *interpreter) executeForEachStat(fes parser.ForEachStat) error {
+func (inter *interpreter) executeForEach(fes parser.ForEachStat) error {
 	arrv := inter.getVariable(fes.Array.Id.Lexeme)
 	arr, isarr := arrv.(awkarray)
 	if !isarr {
@@ -367,7 +367,7 @@ func (inter *interpreter) executeForEachStat(fes parser.ForEachStat) error {
 	return nil
 }
 
-func (inter *interpreter) executeReturnStat(rs parser.ReturnStat) error {
+func (inter *interpreter) executeReturn(rs parser.ReturnStat) error {
 	v, err := inter.eval(rs.ReturnVal)
 	if err != nil {
 		return err
