@@ -68,11 +68,11 @@ func (ps *parser) functionItem() (Item, error) {
 	ps.infunction = true
 	defer func() { ps.infunction = false }()
 	ps.advance()
-	if !ps.eat(lexer.Identifier) {
+	if !ps.eat(lexer.Identifier, lexer.IdentifierParen) {
 		return nil, ps.parseErrorAtCurrent("expected identifier after 'function'")
 	}
 	name := ps.previous
-	if !ps.eat(lexer.LeftParen) {
+	if name.Type != lexer.IdentifierParen && !ps.eat(lexer.LeftParen) {
 		return nil, ps.parseErrorAtCurrent("expected '(' after function name")
 	}
 	args := make([]lexer.Token, 0)
@@ -1003,17 +1003,17 @@ func (ps *parser) termExpr() (Expr, error) {
 	case lexer.Identifier:
 		id := ps.current
 		ps.advance()
-		if id.Type == lexer.Identifier && ps.eat(lexer.LeftSquare) {
+		if ps.eat(lexer.LeftSquare) {
 			sub, err = ps.insideIndexing(id)
-		} else if ps.eat(lexer.LeftParen) {
-			sub, err = ps.callExpr(id)
-		} else if id.Type == lexer.Identifier {
+		} else {
 			sub, err = IdExpr{
 				Id: id,
 			}, nil
-		} else {
-			return nil, ps.parseErrorAt(id, "unexpected builtin function name")
 		}
+	case lexer.IdentifierParen:
+		id := ps.current
+		ps.advance()
+		sub, err = ps.callExpr(id)
 	case lexer.Getline:
 		sub, err = ps.getlineExpr()
 	case lexer.Slash:

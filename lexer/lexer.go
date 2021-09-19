@@ -77,6 +77,7 @@ const (
 	While
 
 	Identifier
+	IdentifierParen
 
 	Regex
 	String
@@ -463,6 +464,13 @@ func (l *Lexer) identifier() Token {
 	rettype := Identifier
 	if t, ok := keywords[lexeme.String()]; ok {
 		rettype = t
+	}
+
+	if rettype == Identifier {
+		if l.currentRune == '(' {
+			rettype = IdentifierParen
+			l.advance()
+		}
 	}
 
 	return l.makeTokenFromBuilder(rettype, lexeme)
