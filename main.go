@@ -12,6 +12,7 @@ import (
 
 	"github.com/fioriandrea/aawk/lexer"
 	"github.com/fioriandrea/aawk/parser"
+	"github.com/fioriandrea/aawk/resolver"
 	"github.com/fioriandrea/aawk/runtime"
 )
 
@@ -64,12 +65,24 @@ func main() {
 	if err != nil {
 		os.Exit(1)
 	}
+
 	/*b, err := json.MarshalIndent(tree, "", "\t")
 	if err != nil {
 		fmt.Println("error:", err)
 	}
 	fmt.Println(string(b))*/
-	err = runtime.Run(tree, args)
+
+	builtinFunctions := make([]string, 0, len(runtime.Builtins))
+	for name, _ := range runtime.Builtins {
+		builtinFunctions = append(builtinFunctions, name)
+	}
+	tree, globalindices, functionindices, err := resolver.ResolveVariables(tree, builtinFunctions)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	err = runtime.Run(tree, args, globalindices, functionindices)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

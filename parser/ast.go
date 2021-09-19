@@ -49,7 +49,8 @@ func (e UnaryExpr) Token() lexer.Token {
 }
 
 type NumberExpr struct {
-	Num lexer.Token
+	Num    lexer.Token
+	NumVal float64
 	Expr
 }
 
@@ -103,7 +104,10 @@ type LhsExpr interface {
 }
 
 type IdExpr struct {
-	Id lexer.Token
+	Id            lexer.Token
+	Index         int
+	LocalIndex    int
+	FunctionIndex int
 	LhsExpr
 }
 
@@ -112,13 +116,13 @@ func (e IdExpr) Token() lexer.Token {
 }
 
 type IndexingExpr struct {
-	Id    lexer.Token
+	Id    IdExpr
 	Index []Expr
 	LhsExpr
 }
 
 func (e IndexingExpr) Token() lexer.Token {
-	return e.Id
+	return e.Id.Token()
 }
 
 type DollarExpr struct {
@@ -174,13 +178,13 @@ func (e GetlineExpr) Token() lexer.Token {
 }
 
 type CallExpr struct {
-	Called lexer.Token
+	Called IdExpr
 	Args   []Expr
 	Expr
 }
 
 func (e CallExpr) Token() lexer.Token {
-	return e.Called
+	return e.Called.Id
 }
 
 type InExpr struct {

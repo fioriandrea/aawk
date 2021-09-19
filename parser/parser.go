@@ -1055,8 +1055,10 @@ func (ps *parser) callExpr(called lexer.Token) (Expr, error) {
 		return nil, ps.parseErrorAtCurrent("expected ')' after call")
 	}
 	return CallExpr{
-		Called: called,
-		Args:   exprs,
+		Called: IdExpr{
+			Id: called,
+		},
+		Args: exprs,
 	}, nil
 }
 
@@ -1115,6 +1117,9 @@ func (ps *parser) groupingExpr() (Expr, error) {
 }
 
 func (ps *parser) insideIndexing(id lexer.Token) (Expr, error) {
+	idexpr := IdExpr{
+		Id: id,
+	}
 	exprs, err := ps.exprList(func() bool { return ps.check(lexer.RightSquare) })
 	if err != nil {
 		return nil, err
@@ -1123,7 +1128,7 @@ func (ps *parser) insideIndexing(id lexer.Token) (Expr, error) {
 		return nil, ps.parseErrorAtCurrent("expected ']'")
 	}
 	return IndexingExpr{
-		Id:    id,
+		Id:    idexpr,
 		Index: exprs,
 	}, nil
 }

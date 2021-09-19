@@ -1,6 +1,10 @@
 package runtime
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
 	"math"
 	"strings"
 	"time"
@@ -20,14 +24,20 @@ type Callable interface {
 	Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error)
 }
 
-type AwkFunction parser.FunctionDef
+type AwkFunction struct {
+	parser.FunctionDef
+	locals []awkvalue
+}
 
-func (af AwkFunction) Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-	subenv := newEnvironment(inter.env)
+func (af *AwkFunction) Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	if af.locals == nil {
+		af.locals = make([]awkvalue, len(af.Args))
+	}
+	subenv := newEnvironment(inter.env, af.locals)
 
-	linkarrays := map[string]string{}
+	linkarrays := map[int]parser.IdExpr{}
 
-	for _, argtok := range af.Args {
+	for i := range af.Args {
 		var arg parser.Expr
 		if len(args) > 0 {
 			arg = args[0]
@@ -37,11 +47,11 @@ func (af AwkFunction) Call(inter *interpreter, called lexer.Token, args []parser
 		if err != nil {
 			return nil, err
 		}
-		subenv.locals[argtok.Lexeme] = v
+		subenv.locals[i] = v
 
 		// undefined values could be used as an array
 		if idexpr, ok := arg.(parser.IdExpr); ok && v == nil {
-			linkarrays[argtok.Lexeme] = idexpr.Id.Lexeme
+			linkarrays[i] = idexpr
 		}
 	}
 
@@ -63,10 +73,11 @@ func (af AwkFunction) Call(inter *interpreter, called lexer.Token, args []parser
 	}
 
 	// link back arrays
+	inter.env = subenv.calling
 	for local, calling := range linkarrays {
-		v := inter.env.get(local, nil)
+		v := subenv.locals[local]
 		if _, ok := v.(awkarray); ok {
-			inter.env.calling.set(calling, v, inter.globals)
+			inter.setVariable(calling, v)
 		}
 	}
 	return retval, nil
@@ -78,7 +89,7 @@ func (nf NativeFunction) Call(inter *interpreter, called lexer.Token, args []par
 	return nf(inter, called, args)
 }
 
-var builtins = map[string]NativeFunction{
+var Builtins = map[string]NativeFunction{
 	"length": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 		if len(args) > 1 {
 			return nil, inter.runtimeError(called, "too may arguments")
@@ -246,4 +257,103 @@ var builtins = map[string]NativeFunction{
 		}
 		return awknumber(ret), nil
 	},
+}
+
+// Source: https://github.com/benhoyt/goawk/blob/master/interp/functions.go
+func (inter *interpreter) parseFmtTypes(print lexer.Token, s string) (format string, types []func(awkvalue) interface{}, err error) {
+	if f, ok := inter.fprintfcache[s]; ok {
+		format, types = f()
+		return format, types, nil
+	}
+
+	tostr := func(v awkvalue) interface{} {
+		return inter.toGoString(v)
+	}
+	tofloat := func(v awkvalue) interface{} {
+		return inter.toGoFloat(v)
+	}
+	toint := func(v awkvalue) interface{} {
+		return int(inter.toGoFloat(v))
+	}
+	touint := func(v awkvalue) interface{} {
+		return uint(inter.toGoFloat(v))
+	}
+	tochar := func(v awkvalue) interface{} {
+		return []rune(inter.toGoString(v))[0]
+	}
+
+	out := []byte(s)
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' {
+			i++
+			if i >= len(s) {
+				return "", nil, errors.New("expected type specifier after %")
+			}
+			if s[i] == '%' {
+				continue
+			}
+			for i < len(s) && bytes.IndexByte([]byte(" .-+*#0123456789"), s[i]) >= 0 {
+				if s[i] == '*' {
+					types = append(types, toint)
+				}
+				i++
+			}
+			if i >= len(s) {
+				return "", nil, errors.New("expected type specifier after %")
+			}
+			var t func(awkvalue) interface{}
+			switch s[i] {
+			case 's':
+				t = tostr
+			case 'd', 'i', 'o', 'x', 'X':
+				t = toint
+			case 'f', 'e', 'E', 'g', 'G':
+				t = tofloat
+			case 'u':
+				t = touint
+				out[i] = 'd'
+			case 'c':
+				t = tochar
+				out[i] = 's'
+			default:
+				return "", nil, fmt.Errorf("invalid format type %q", s[i])
+			}
+			types = append(types, t)
+		}
+	}
+
+	format = string(out)
+	if len(inter.fprintfcache) < 100 {
+		inter.fprintfcache[s] = func() (string, []func(awkvalue) interface{}) { return format, types }
+	}
+	return format, types, nil
+}
+
+func (inter *interpreter) fprintf(w io.Writer, print lexer.Token, exprs []parser.Expr) error {
+	format, err := inter.eval(exprs[0])
+	if err != nil {
+		return err
+	}
+	formatstr, convs, err := inter.parseFmtTypes(print, inter.toGoString(format))
+	if err != nil {
+		return nil
+	}
+	if len(convs) > len(exprs[1:]) {
+		return inter.runtimeError(print, "run out of arguments for formatted output")
+	}
+	args := make([]interface{}, 0, len(convs))
+	for _, expr := range exprs[1:] {
+		arg, err := inter.eval(expr)
+		if err != nil {
+			return err
+		}
+		_, isarr := arg.(awkarray)
+		if isarr {
+			return inter.runtimeError(print, "cannot print array")
+		}
+		args = append(args, convs[0](arg))
+		convs = convs[1:]
+	}
+	fmt.Fprintf(w, formatstr, args...)
+	return nil
 }
