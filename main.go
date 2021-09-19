@@ -86,7 +86,7 @@ func main() {
 
 	err = interpreter.Run(tree, args, globalindices, functionindices)
 
-	if isFlagPassed("memprofile") {
+	if *memprofile != "" {
 		f, err := os.Create(*memprofile)
 		if err != nil {
 			log.Fatal("could not create memory profile: ", err)

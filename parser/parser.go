@@ -535,6 +535,7 @@ func (ps *parser) forStat() (Stat, error) {
 			return ForStat{}, err
 		}
 		if ps.eat(lexer.RightParen) {
+			ps.eat(lexer.Newline)
 			return ps.finishForEachStat(op, init)
 		}
 	}
@@ -563,6 +564,7 @@ func (ps *parser) forStat() (Stat, error) {
 	if !ps.eat(lexer.RightParen) {
 		return ForStat{}, ps.parseErrorAtCurrent("expected ')' after for statement increment")
 	}
+	ps.eat(lexer.Newline)
 
 	body, err := ps.stat()
 	if err != nil {
