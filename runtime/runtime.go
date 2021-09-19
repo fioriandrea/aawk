@@ -27,6 +27,14 @@ func (er errorReturn) Error() string {
 	return "return"
 }
 
+type ErrorExit struct {
+	Status int
+}
+
+func (ee ErrorExit) Error() string {
+	return "exit"
+}
+
 type awkvalue interface {
 	isValue()
 }
@@ -125,6 +133,8 @@ func (inter *interpreter) execute(stat parser.Stat) error {
 		return ErrContinue
 	case parser.ReturnStat:
 		return inter.executeReturn(v)
+	case parser.ExitStat:
+		return inter.executeExit(v)
 	}
 	return nil
 }
@@ -274,6 +284,16 @@ func (inter *interpreter) executeReturn(rs parser.ReturnStat) error {
 	}
 	return errorReturn{
 		val: v,
+	}
+}
+
+func (inter *interpreter) executeExit(es parser.ExitStat) error {
+	v, err := inter.eval(es.Status)
+	if err != nil {
+		return err
+	}
+	return ErrorExit{
+		Status: int(inter.toGoFloat(v)),
 	}
 }
 
@@ -1047,6 +1067,8 @@ func specialFilter(item parser.Item, ttype lexer.TokenType) bool {
 
 func Run(items []parser.Item, paths []string, globalindices map[string]int, functionindices map[string]int) error {
 	var inter interpreter
+	var errexit ErrorExit
+	var skipNormals bool
 
 	items, functions := filterItems(items, func(item parser.Item) bool {
 		switch item.(type) {
@@ -1082,27 +1104,38 @@ func Run(items []parser.Item, paths []string, globalindices map[string]int, func
 	for _, beg := range begins {
 		patact := beg.(parser.PatternAction)
 		err := inter.execute(patact.Action)
-		if err != nil {
+		if ee, ok := err.(ErrorExit); ok {
+			errexit = ee
+			skipNormals = true
+			break
+		} else if err != nil {
 			return err
 		}
 	}
 
-	err := inter.processNormals(normals, paths)
-	if err != nil {
-		return err
+	if !skipNormals {
+		err := inter.processNormals(normals, paths)
+		if ee, ok := err.(ErrorExit); ok {
+			errexit = ee
+		} else if err != nil {
+			return err
+		}
 	}
 
 	for _, end := range ends {
 		patact := end.(parser.PatternAction)
 		err := inter.execute(patact.Action)
-		if err != nil {
+		if ee, ok := err.(ErrorExit); ok {
+			errexit = ee
+			break
+		} else if err != nil {
 			return err
 		}
 	}
 
 	inter.cleanup()
 
-	return nil
+	return errexit
 }
 
 func (inter *interpreter) processNormals(normals []parser.Item, paths []string) error {

@@ -185,6 +185,61 @@ func (ps *parser) pattern() (Pattern, error) {
 	}
 }
 
+func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, error) {
+	ps.skipNewLines()
+	stats := make([]Stat, 0)
+	var errtoret error = nil
+	for ps.current.Type != lexer.Eof && !ps.check(types...) {
+		stat, err := ps.stat()
+		if err != nil {
+			errtoret = err
+			fmt.Fprintln(os.Stderr, err)
+			for !ps.checkTerminator() {
+				ps.advance()
+			}
+			continue
+		}
+		stats = append(stats, stat)
+	}
+	return stats, errtoret
+}
+
+func (ps *parser) stat() (Stat, error) {
+	var stat Stat
+	var err error
+	switch ps.current.Type {
+	case lexer.If:
+		stat, err = ps.ifStat()
+	case lexer.While:
+		stat, err = ps.whileStat()
+	case lexer.Do:
+		stat, err = ps.doWhileStat()
+	case lexer.For:
+		stat, err = ps.forStat()
+	case lexer.LeftCurly:
+		stat, err = ps.blockStat()
+	case lexer.Next:
+		stat, err = ps.nextStat()
+	case lexer.Break:
+		stat, err = ps.breakStat()
+	case lexer.Continue:
+		stat, err = ps.continueStat()
+	case lexer.Return:
+		stat, err = ps.returnStat()
+	case lexer.Exit:
+		stat, err = ps.exitStat()
+	case lexer.Semicolon:
+		fallthrough
+	case lexer.Newline:
+		ps.advance()
+		stat, err = nil, nil
+	default:
+		stat, err = ps.simpleStat()
+	}
+	ps.skipNewLines()
+	return stat, err
+}
+
 func (ps *parser) blockStat() (BlockStat, error) {
 	ps.eat(lexer.LeftCurly)
 	ret, err := ps.statListUntil(lexer.RightCurly)
@@ -197,10 +252,6 @@ func (ps *parser) blockStat() (BlockStat, error) {
 		return nil, err
 	}
 	return ret, nil
-}
-
-func (ps *parser) checkAllowedAfterNexts() bool {
-	return ps.checkTerminator() || ps.check(lexer.RightCurly)
 }
 
 func (ps *parser) nextStat() (NextStat, error) {
@@ -252,7 +303,7 @@ func (ps *parser) returnStat() (ReturnStat, error) {
 		return ReturnStat{}, ps.parseErrorAt(op, "cannot have return outside a function")
 	}
 	var expr Expr
-	if !ps.checkEndOfReturn() {
+	if !ps.checkEndOfReturns() {
 		var err error
 		expr, err = ps.expr()
 		if err != nil {
@@ -265,57 +316,21 @@ func (ps *parser) returnStat() (ReturnStat, error) {
 	}, nil
 }
 
-func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, error) {
-	ps.skipNewLines()
-	stats := make([]Stat, 0)
-	var errtoret error = nil
-	for ps.current.Type != lexer.Eof && !ps.check(types...) {
-		stat, err := ps.stat()
+func (ps *parser) exitStat() (ExitStat, error) {
+	ps.eat(lexer.Exit)
+	op := ps.previous
+	var expr Expr
+	if !ps.checkEndOfReturns() {
+		var err error
+		expr, err = ps.expr()
 		if err != nil {
-			errtoret = err
-			fmt.Fprintln(os.Stderr, err)
-			for !ps.checkTerminator() {
-				ps.advance()
-			}
-			continue
+			return ExitStat{}, err
 		}
-		stats = append(stats, stat)
 	}
-	return stats, errtoret
-}
-
-func (ps *parser) stat() (Stat, error) {
-	var stat Stat
-	var err error
-	switch ps.current.Type {
-	case lexer.If:
-		stat, err = ps.ifStat()
-	case lexer.While:
-		stat, err = ps.whileStat()
-	case lexer.Do:
-		stat, err = ps.doWhileStat()
-	case lexer.For:
-		stat, err = ps.forStat()
-	case lexer.LeftCurly:
-		stat, err = ps.blockStat()
-	case lexer.Next:
-		stat, err = ps.nextStat()
-	case lexer.Break:
-		stat, err = ps.breakStat()
-	case lexer.Continue:
-		stat, err = ps.continueStat()
-	case lexer.Return:
-		stat, err = ps.returnStat()
-	case lexer.Semicolon:
-		fallthrough
-	case lexer.Newline:
-		ps.advance()
-		stat, err = nil, nil
-	default:
-		stat, err = ps.simpleStat()
-	}
-	ps.skipNewLines()
-	return stat, err
+	return ExitStat{
+		Exit:   op,
+		Status: expr,
+	}, nil
 }
 
 func (ps *parser) simpleStat() (Stat, error) {
@@ -1213,6 +1228,10 @@ func (ps *parser) checkEndOfPrintExprList() bool {
 	return ps.checkTerminator() || ps.check(lexer.RightCurly, lexer.RightParen, lexer.RightSquare, lexer.Pipe, lexer.DoubleGreater, lexer.Greater)
 }
 
-func (ps *parser) checkEndOfReturn() bool {
+func (ps *parser) checkEndOfReturns() bool {
 	return ps.check(lexer.RightCurly) || ps.checkTerminator()
+}
+
+func (ps *parser) checkAllowedAfterNexts() bool {
+	return ps.checkTerminator() || ps.check(lexer.RightCurly)
 }

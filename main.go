@@ -83,7 +83,9 @@ func main() {
 	}
 
 	err = runtime.Run(tree, args, globalindices, functionindices)
-	if err != nil {
+	if ee, ok := err.(runtime.ErrorExit); ok {
+		os.Exit(ee.Status)
+	} else if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

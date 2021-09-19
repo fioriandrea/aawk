@@ -116,6 +116,7 @@ var keywords = map[string]TokenType{
 	"do":       Do,
 	"else":     Else,
 	"END":      End,
+	"exit":     Exit,
 	"for":      For,
 	"function": Function,
 	"getline":  Getline,

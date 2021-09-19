@@ -309,6 +309,16 @@ func (s ReturnStat) Token() lexer.Token {
 	return s.Return
 }
 
+type ExitStat struct {
+	Exit   lexer.Token
+	Status Expr
+	Stat
+}
+
+func (s ExitStat) Token() lexer.Token {
+	return s.Exit
+}
+
 type BlockStat []Stat
 
 func (bs BlockStat) isStat() {}
