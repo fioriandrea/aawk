@@ -9,26 +9,16 @@ import (
 	"github.com/fioriandrea/aawk/parser"
 )
 
-type environment struct {
+type resolver struct {
 	indices         map[string]int
 	localindices    map[string]int
 	functionindices map[string]int
 }
 
-func newEnvironment() *environment {
-	return &environment{
-		indices:         map[string]int{},
-		functionindices: map[string]int{},
-	}
-}
-
-type resolver struct {
-	env *environment
-}
-
 func newResolver() *resolver {
 	return &resolver{
-		env: newEnvironment(),
+		indices:         map[string]int{},
+		functionindices: map[string]int{},
 	}
 }
 
@@ -36,25 +26,25 @@ func ResolveVariables(items []parser.Item, builtinFunctions []string) ([]parser.
 	resolver := newResolver()
 
 	for _, builtin := range builtinFunctions {
-		resolver.env.functionindices[builtin] = len(resolver.env.functionindices)
+		resolver.functionindices[builtin] = len(resolver.functionindices)
 	}
 
 	for _, item := range items {
 		switch it := item.(type) {
 		case parser.FunctionDef:
-			if _, ok := resolver.env.functionindices[it.Name.Lexeme]; ok {
+			if _, ok := resolver.functionindices[it.Name.Lexeme]; ok {
 				return nil, nil, nil, resolver.resolveError(it.Name, "function already defined")
 			}
 			if _, ok := lexer.Builtinvars[it.Name.Lexeme]; ok {
 				return nil, nil, nil, resolver.resolveError(it.Name, "cannot declare built-in variable as function")
 			}
-			resolver.env.functionindices[it.Name.Lexeme] = len(resolver.env.functionindices)
+			resolver.functionindices[it.Name.Lexeme] = len(resolver.functionindices)
 		}
 	}
 
 	var err error
 	items, err = resolver.items(items)
-	return items, resolver.env.indices, resolver.env.functionindices, err
+	return items, resolver.indices, resolver.functionindices, err
 }
 
 func (res *resolver) items(items []parser.Item) ([]parser.Item, error) {
@@ -79,11 +69,11 @@ func (res *resolver) items(items []parser.Item) ([]parser.Item, error) {
 
 func (res *resolver) functionDef(fd parser.FunctionDef) (parser.FunctionDef, error) {
 	var err error
-	res.env.localindices = map[string]int{}
-	defer func() { res.env.localindices = nil }()
+	res.localindices = map[string]int{}
+	defer func() { res.localindices = nil }()
 	for i, arg := range fd.Args {
 		arg := arg
-		res.env.localindices[arg.Lexeme] = i
+		res.localindices[arg.Lexeme] = i
 	}
 
 	fd.Body, err = res.blockStat(fd.Body)
@@ -356,7 +346,7 @@ func (res *resolver) lhsExpr(e parser.LhsExpr) (parser.LhsExpr, error) {
 }
 
 func (res *resolver) idExpr(e parser.IdExpr) (parser.IdExpr, error) {
-	li, liok := res.env.localindices[e.Id.Lexeme]
+	li, liok := res.localindices[e.Id.Lexeme]
 	if liok {
 		e.LocalIndex = li
 		e.Index = -1
@@ -364,7 +354,7 @@ func (res *resolver) idExpr(e parser.IdExpr) (parser.IdExpr, error) {
 		return e, nil
 	}
 
-	if _, ok := res.env.functionindices[e.Id.Lexeme]; ok {
+	if _, ok := res.functionindices[e.Id.Lexeme]; ok {
 		return e, res.resolveError(e.Token(), "cannot use function in variable context")
 	}
 
@@ -374,15 +364,15 @@ func (res *resolver) idExpr(e parser.IdExpr) (parser.IdExpr, error) {
 		e.FunctionIndex = -1
 		return e, nil
 	}
-	i, iok := res.env.indices[e.Id.Lexeme]
+	i, iok := res.indices[e.Id.Lexeme]
 	if iok {
 		e.LocalIndex = -1
 		e.Index = i
 		e.FunctionIndex = -1
 		return e, nil
 	}
-	e.Index = len(res.env.indices)
-	res.env.indices[e.Id.Lexeme] = e.Index
+	e.Index = len(res.indices)
+	res.indices[e.Id.Lexeme] = e.Index
 	return e, nil
 }
 
@@ -458,7 +448,7 @@ func (res *resolver) getlineExpr(e parser.GetlineExpr) (parser.GetlineExpr, erro
 
 func (res *resolver) callExpr(e parser.CallExpr) (parser.CallExpr, error) {
 	var err error
-	if i, ok := res.env.functionindices[e.Called.Id.Lexeme]; ok {
+	if i, ok := res.functionindices[e.Called.Id.Lexeme]; ok {
 		e.Called.FunctionIndex = i
 	} else {
 		return e, res.resolveError(e.Token(), "cannot call non-callable")
