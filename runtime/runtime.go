@@ -83,6 +83,14 @@ func (env *environment) set(k string, v awkvalue, globals map[string]awkvalue) {
 	globals[k] = v
 }
 
+func (env *environment) has(k string) bool {
+	if env == nil {
+		return false
+	}
+	_, ok := env.locals[k]
+	return ok
+}
+
 func newEnvironment(calling *environment) *environment {
 	return &environment{
 		locals:  map[string]awkvalue{},
@@ -110,7 +118,7 @@ func NewRNG(seed int64) RNG {
 type interpreter struct {
 	env          *environment
 	globals      map[string]awkvalue
-	ftable       map[string]parser.FunctionDef
+	ftable       map[string]Callable
 	fields       []awkvalue
 	outprograms  outwriters
 	outfiles     outwriters
@@ -559,87 +567,10 @@ func (inter *interpreter) evalGetline(gl parser.GetlineExpr) (awkvalue, error) {
 
 func (inter *interpreter) evalCall(ce parser.CallExpr) (awkvalue, error) {
 	called := ce.Called
-	switch called.Type {
-	case lexer.Close:
-		return inter.evalClose(ce)
-	case lexer.Length:
-		return inter.evalLength(ce)
-	case lexer.Sprintf:
-		return inter.evalSprintf(ce)
-	case lexer.Sqrt:
-		return inter.evalSqrt(ce)
-	case lexer.Atan2:
-		return inter.evalAtan2(ce)
-	case lexer.Cos:
-		return inter.evalCos(ce)
-	case lexer.Sin:
-		return inter.evalSin(ce)
-	case lexer.Log:
-		return inter.evalLog(ce)
-	case lexer.Exp:
-		return inter.evalExp(ce)
-	case lexer.Rand:
-		return inter.evalRand(ce)
-	case lexer.Srand:
-		return inter.evalSrand(ce)
-	case lexer.Int:
-		return inter.evalInt(ce)
-	case lexer.Identifier:
-		if fi, ok := inter.ftable[called.Lexeme]; ok {
-			return inter.evalFunctionCall(fi, ce.Args)
-		}
+	if f, ok := inter.ftable[called.Lexeme]; ok {
+		return f.Call(inter, ce.Called, ce.Args)
 	}
 	return nil, inter.runtimeError(ce.Token(), "cannot call non callable")
-}
-
-func (inter *interpreter) evalFunctionCall(fi parser.FunctionDef, args []parser.Expr) (awkvalue, error) {
-	subenv := newEnvironment(inter.env)
-
-	linkarrays := map[string]string{}
-
-	for _, argtok := range fi.Args {
-		var arg parser.Expr
-		if len(args) > 0 {
-			arg = args[0]
-			args = args[1:]
-		}
-		v, err := inter.eval(arg)
-		if err != nil {
-			return nil, err
-		}
-		subenv.locals[argtok.Lexeme] = v
-
-		// undefined values could be used as an array
-		if idexpr, ok := arg.(parser.IdExpr); ok && v == nil {
-			linkarrays[argtok.Lexeme] = idexpr.Id.Lexeme
-		}
-	}
-
-	for _, arg := range args {
-		_, err := inter.eval(arg)
-		if err != nil {
-			return nil, err
-		}
-	}
-	inter.env = subenv
-	defer func() { inter.env = subenv.calling }()
-
-	err := inter.execute(fi.Body)
-	var retval awkvalue
-	if errRet, ok := err.(errorReturn); ok {
-		retval = errRet.val
-	} else if err != nil {
-		return nil, err
-	}
-
-	// link back arrays
-	for local, calling := range linkarrays {
-		v := inter.env.get(local, nil)
-		if _, ok := v.(awkarray); ok {
-			inter.env.calling.set(calling, v, inter.globals)
-		}
-	}
-	return retval, nil
 }
 
 func (inter *interpreter) evalIn(ine parser.InExpr) (awkvalue, error) {
@@ -831,6 +762,11 @@ func (inter *interpreter) parseNumber(n parser.NumberExpr) awkvalue {
 }
 
 func (inter *interpreter) evalAssign(a parser.AssignExpr) (awkvalue, error) {
+	if id, isid := a.Left.(parser.IdExpr); isid {
+		if _, ok := inter.ftable[id.Id.Lexeme]; ok && !inter.env.has(id.Id.Lexeme) {
+			return nil, inter.runtimeError(id.Token(), "functions must be called")
+		}
+	}
 	right, err := inter.eval(a.Right)
 	if err != nil {
 		return nil, err
@@ -936,6 +872,9 @@ func (inter *interpreter) evalTernary(te parser.TernaryExpr) (awkvalue, error) {
 }
 
 func (inter *interpreter) evalId(i parser.IdExpr) (awkvalue, error) {
+	if _, ok := inter.ftable[i.Id.Lexeme]; ok && !inter.env.has(i.Id.Lexeme) {
+		return nil, inter.runtimeError(i.Token(), "functions must be called")
+	}
 	return inter.getVariable(i.Id.Lexeme), nil
 }
 
@@ -1130,7 +1069,7 @@ func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
 	return nil
 }
 
-func (inter *interpreter) initialize(paths []string, functions []parser.Item) {
+func (inter *interpreter) initialize(paths []string, functions []parser.Item) error {
 	inter.globals = map[string]awkvalue{}
 	inter.env = nil
 	inter.initBuiltInVars(paths)
@@ -1142,11 +1081,21 @@ func (inter *interpreter) initialize(paths []string, functions []parser.Item) {
 	inter.currentFile = bufio.NewReader(os.Stdin)
 	inter.rangematched = map[int]bool{}
 
-	inter.ftable = map[string]parser.FunctionDef{}
+	inter.ftable = map[string]Callable{}
+
+	for name, native := range builtins {
+		inter.ftable[name] = native
+	}
+
 	for _, item := range functions {
 		fi := item.(parser.FunctionDef)
-		inter.ftable[fi.Name.Lexeme] = fi
+		if _, ok := inter.ftable[fi.Name.Lexeme]; ok {
+			return inter.runtimeError(fi.Name, "function already defined")
+		}
+		inter.ftable[fi.Name.Lexeme] = AwkFunction(fi)
 	}
+
+	return nil
 }
 
 func (inter *interpreter) cleanup() {

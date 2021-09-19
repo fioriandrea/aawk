@@ -1000,30 +1000,6 @@ func (ps *parser) termExpr() (Expr, error) {
 		ps.advance()
 	case lexer.LeftParen:
 		sub, err = ps.groupingExpr()
-	case lexer.Close:
-		fallthrough
-	case lexer.Length:
-		fallthrough
-	case lexer.Sqrt:
-		fallthrough
-	case lexer.Sprintf:
-		fallthrough
-	case lexer.Sin:
-		fallthrough
-	case lexer.Cos:
-		fallthrough
-	case lexer.Int:
-		fallthrough
-	case lexer.Exp:
-		fallthrough
-	case lexer.Atan2:
-		fallthrough
-	case lexer.Log:
-		fallthrough
-	case lexer.Rand:
-		fallthrough
-	case lexer.Srand:
-		fallthrough
 	case lexer.Identifier:
 		id := ps.current
 		ps.advance()
@@ -1223,7 +1199,7 @@ func (ps *parser) checkAllowedAfterExpr() bool {
 }
 
 func (ps *parser) checkAllowedAfterConcat() bool {
-	return ps.check(lexer.Atan2, lexer.Int, lexer.Close, lexer.Cos, lexer.Log, lexer.Exp, lexer.Rand, lexer.Srand, lexer.Getline, lexer.Sprintf) || ps.check(lexer.Dollar, lexer.Not, lexer.Identifier, lexer.Number, lexer.String, lexer.LeftParen)
+	return ps.check(lexer.Getline, lexer.Dollar, lexer.Not, lexer.Identifier, lexer.Number, lexer.String, lexer.LeftParen)
 }
 
 func (ps *parser) checkEndOfPrintExprList() bool {
