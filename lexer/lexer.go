@@ -69,13 +69,13 @@ const (
 	Getline
 	If
 	In
+	Length
 	Next
 	Print
 	Printf
 	Rand
 	Return
 	While
-
 	Identifier
 	IdentifierParen
 
@@ -89,23 +89,65 @@ const (
 	TokenCount
 )
 
-var Builtinvars = map[string]bool{
-	"ARGC":     true,
-	"ARGV":     true,
-	"CONVFMT":  true,
-	"ENVIRON":  true,
-	"FILENAME": true,
-	"FNR":      true,
-	"FS":       true,
-	"NF":       true,
-	"NR":       true,
-	"OFMT":     true,
-	"OFS":      true,
-	"ORS":      true,
-	"RLENGTH":  true,
-	"RS":       true,
-	"RSTART":   true,
-	"SUBSEP":   true,
+const (
+	Argc = iota
+	Argv
+	Convfmt
+	Environ
+	Filename
+	Fnr
+	Fs
+	Nf
+	Nr
+	Ofmt
+	Ofs
+	Ors
+	Rlength
+	Rs
+	Rstart
+	Subsep
+)
+
+var Builtinvars = map[string]int{
+	"ARGC":     Argc,
+	"ARGV":     Argv,
+	"CONVFMT":  Convfmt,
+	"ENVIRON":  Environ,
+	"FILENAME": Filename,
+	"FNR":      Fnr,
+	"FS":       Fs,
+	"NF":       Nf,
+	"NR":       Nr,
+	"OFMT":     Ofmt,
+	"OFS":      Ofs,
+	"ORS":      Ors,
+	"RLENGTH":  Rlength,
+	"RS":       Rs,
+	"RSTART":   Rstart,
+	"SUBSEP":   Subsep,
+}
+
+var Builtinfuncs = map[string]bool{
+	"atan2":   true,
+	"cos":     true,
+	"sin":     true,
+	"exp":     true,
+	"log":     true,
+	"sqrt":    true,
+	"int":     true,
+	"rand":    true,
+	"sran":    true,
+	"gsub":    true,
+	"index":   true,
+	"match":   true,
+	"split":   true,
+	"sprintf": true,
+	"sub":     true,
+	"substr":  true,
+	"tolower": true,
+	"toupper": true,
+	"close":   true,
+	"system":  true,
 }
 
 var keywords = map[string]TokenType{
@@ -122,6 +164,7 @@ var keywords = map[string]TokenType{
 	"getline":  Getline,
 	"if":       If,
 	"in":       In,
+	"length":   Length,
 	"next":     Next,
 	"printf":   Printf,
 	"print":    Print,
@@ -471,6 +514,14 @@ func (l *Lexer) identifier() Token {
 		if l.currentRune == '(' {
 			rettype = IdentifierParen
 			l.advance()
+		} else if _, ok := Builtinfuncs[lexeme.String()]; ok {
+			for unicode.IsSpace(l.currentRune) && l.currentRune != '\n' {
+				l.advance()
+			}
+			if l.currentRune == '(' {
+				rettype = IdentifierParen
+				l.advance()
+			}
 		}
 	}
 

@@ -19,14 +19,6 @@ type parser struct {
 	infunction bool
 }
 
-func (ps *parser) isInGetline() bool {
-	return ps.ingetline && ps.parendepth == 0
-}
-
-func (ps *parser) isInPrint() bool {
-	return ps.inprint && ps.parendepth == 0
-}
-
 func GetSyntaxTree(lexer lexer.Lexer) ([]Item, error) {
 	ps := parser{
 		lexer: lexer,
@@ -64,7 +56,7 @@ func (ps *parser) item() (Item, error) {
 	}
 }
 
-func (ps *parser) functionItem() (Item, error) {
+func (ps *parser) functionItem() (*FunctionDef, error) {
 	ps.infunction = true
 	defer func() { ps.infunction = false }()
 	ps.advance()
@@ -77,7 +69,7 @@ func (ps *parser) functionItem() (Item, error) {
 	}
 	args := make([]lexer.Token, 0)
 	for ps.eat(lexer.Identifier) {
-		if lexer.Builtinvars[ps.previous.Lexeme] {
+		if _, ok := lexer.Builtinvars[ps.previous.Lexeme]; ok {
 			return nil, ps.parseErrorAt(ps.previous, "cannot use built in variable as function parameter")
 		}
 		args = append(args, ps.previous)
@@ -96,22 +88,22 @@ func (ps *parser) functionItem() (Item, error) {
 	if err != nil {
 		return nil, err
 	}
-	return FunctionDef{
+	return &FunctionDef{
 		Name: name,
 		Args: args,
 		Body: body,
 	}, nil
 }
 
-func (ps *parser) patternActionItem() (Item, error) {
+func (ps *parser) patternActionItem() (*PatternAction, error) {
 	begtok := ps.current
 	pat, err := ps.pattern()
 	if err != nil {
 		return nil, err
 	}
 	if pat == nil {
-		pat = ExprPattern{
-			Expr: NumberExpr{
+		pat = &ExprPattern{
+			Expr: &NumberExpr{
 				Num: lexer.Token{
 					Type:   lexer.Number,
 					Lexeme: "1",
@@ -128,7 +120,7 @@ func (ps *parser) patternActionItem() (Item, error) {
 		}
 	}
 	switch pat.(type) {
-	case SpecialPattern:
+	case *SpecialPattern:
 		if act == nil {
 			return nil, ps.parseErrorAt(begtok, "special pattern must have an action")
 		}
@@ -136,14 +128,14 @@ func (ps *parser) patternActionItem() (Item, error) {
 		if act == nil {
 			begtok.Type = lexer.Print
 			act = BlockStat{
-				PrintStat{
+				&PrintStat{
 					Print: begtok,
 				},
 			}
 		}
 	}
 	ps.eatTerminator()
-	return PatternAction{Pattern: pat, Action: act}, nil
+	return &PatternAction{Pattern: pat, Action: act}, nil
 
 }
 
@@ -154,7 +146,7 @@ func (ps *parser) pattern() (Pattern, error) {
 	case lexer.End:
 		ps.nextable = false
 		ps.advance()
-		return SpecialPattern{Type: ps.previous}, nil
+		return &SpecialPattern{Type: ps.previous}, nil
 	default:
 		ps.nextable = true
 		if ps.check(lexer.LeftCurly) {
@@ -173,13 +165,13 @@ func (ps *parser) pattern() (Pattern, error) {
 			if err != nil {
 				return nil, err
 			}
-			return RangePattern{
+			return &RangePattern{
 				Expr0: res,
 				Comma: op,
 				Expr1: res1,
 			}, nil
 		}
-		return ExprPattern{
+		return &ExprPattern{
 			Expr: res,
 		}, nil
 	}
@@ -254,72 +246,72 @@ func (ps *parser) blockStat() (BlockStat, error) {
 	return ret, nil
 }
 
-func (ps *parser) nextStat() (NextStat, error) {
+func (ps *parser) nextStat() (*NextStat, error) {
 	ps.eat(lexer.Next)
 	op := ps.previous
 	if !ps.nextable {
-		return NextStat{}, ps.parseErrorAt(op, "cannot use 'next' inside BEGIN or END")
+		return nil, ps.parseErrorAt(op, "cannot use 'next' inside BEGIN or END")
 	}
 	if !ps.checkAllowedAfterStatements() {
-		return NextStat{}, ps.parseErrorAtCurrent("unexpected token after 'next'")
+		return nil, ps.parseErrorAtCurrent("unexpected token after 'next'")
 	}
-	return NextStat{
+	return &NextStat{
 		Next: op,
 	}, nil
 }
 
-func (ps *parser) breakStat() (BreakStat, error) {
+func (ps *parser) breakStat() (*BreakStat, error) {
 	ps.eat(lexer.Break)
 	op := ps.previous
 	if ps.loopdepth == 0 {
-		return BreakStat{}, ps.parseErrorAt(op, "cannot have break outside loop")
+		return nil, ps.parseErrorAt(op, "cannot have break outside loop")
 	}
 	if !ps.checkAllowedAfterStatements() {
-		return BreakStat{}, ps.parseErrorAtCurrent("unexpected token after 'break'")
+		return nil, ps.parseErrorAtCurrent("unexpected token after 'break'")
 	}
-	return BreakStat{
+	return &BreakStat{
 		Break: op,
 	}, nil
 }
 
-func (ps *parser) continueStat() (ContinueStat, error) {
+func (ps *parser) continueStat() (*ContinueStat, error) {
 	ps.eat(lexer.Continue)
 	op := ps.previous
 	if ps.loopdepth == 0 {
-		return ContinueStat{}, ps.parseErrorAt(op, "cannot have continue outside loop")
+		return nil, ps.parseErrorAt(op, "cannot have continue outside loop")
 	}
 	if !ps.checkAllowedAfterStatements() {
-		return ContinueStat{}, ps.parseErrorAtCurrent("unexpected token after 'continue'")
+		return nil, ps.parseErrorAtCurrent("unexpected token after 'continue'")
 	}
-	return ContinueStat{
+	return &ContinueStat{
 		Continue: op,
 	}, nil
 }
 
-func (ps *parser) returnStat() (ReturnStat, error) {
+func (ps *parser) returnStat() (*ReturnStat, error) {
 	ps.eat(lexer.Return)
 	op := ps.previous
 	if !ps.infunction {
-		return ReturnStat{}, ps.parseErrorAt(op, "cannot have return outside a function")
+		return nil, ps.parseErrorAt(op, "cannot have return outside a function")
 	}
 	var expr Expr
 	if !ps.checkAllowedAfterStatements() {
 		var err error
 		expr, err = ps.expr()
 		if err != nil {
-			return ReturnStat{}, err
+			return nil, err
 		}
 	}
 	if !ps.checkAllowedAfterStatements() {
-		return ReturnStat{}, ps.parseErrorAtCurrent("unexpected error after return statement")
+		return nil, ps.parseErrorAtCurrent("unexpected error after return statement")
 	}
-	return ReturnStat{
+	return &ReturnStat{
 		Return:    op,
 		ReturnVal: expr,
 	}, nil
 }
 
-func (ps *parser) exitStat() (ExitStat, error) {
+func (ps *parser) exitStat() (*ExitStat, error) {
 	ps.eat(lexer.Exit)
 	op := ps.previous
 	var expr Expr
@@ -327,13 +319,13 @@ func (ps *parser) exitStat() (ExitStat, error) {
 		var err error
 		expr, err = ps.expr()
 		if err != nil {
-			return ExitStat{}, err
+			return nil, err
 		}
 	}
 	if !ps.checkAllowedAfterStatements() {
-		return ExitStat{}, ps.parseErrorAtCurrent("unexpected error after exit statement")
+		return nil, ps.parseErrorAtCurrent("unexpected error after exit statement")
 	}
-	return ExitStat{
+	return &ExitStat{
 		Exit:   op,
 		Status: expr,
 	}, nil
@@ -355,22 +347,22 @@ func (ps *parser) simpleStat() (Stat, error) {
 	return stat, err
 }
 
-func (ps *parser) exprStat() (ExprStat, error) {
+func (ps *parser) exprStat() (*ExprStat, error) {
 	expr, err := ps.expr()
 	if err != nil {
-		return ExprStat{}, err
+		return nil, err
 	}
-	return ExprStat{Expr: expr}, nil
+	return &ExprStat{Expr: expr}, nil
 }
 
-func (ps *parser) printStat() (PrintStat, error) {
+func (ps *parser) printStat() (*PrintStat, error) {
 	ps.inprint = true
 	defer func() { ps.inprint = false }()
 	ps.eat(lexer.Print, lexer.Printf)
 	op := ps.previous
 	exprs, err := ps.exprListEmpty(func() bool { return ps.checkEndOfPrintExprList() })
 	if err != nil {
-		return PrintStat{}, err
+		return nil, err
 	}
 	if len(exprs) == 1 {
 		exprlist, ok := exprs[0].(ExprList)
@@ -380,7 +372,7 @@ func (ps *parser) printStat() (PrintStat, error) {
 	} else {
 		for _, expr := range exprs {
 			if _, isexprlist := expr.(ExprList); isexprlist {
-				return PrintStat{}, ps.parseErrorAt(op, "cannot have multiple expression lists in output statement")
+				return nil, ps.parseErrorAt(op, "cannot have multiple expression lists in output statement")
 			}
 		}
 	}
@@ -390,16 +382,16 @@ func (ps *parser) printStat() (PrintStat, error) {
 		redir = ps.previous
 		file, err = ps.concatExpr()
 		if err != nil {
-			return PrintStat{}, err
+			return nil, err
 		}
 		if file == nil {
-			return PrintStat{}, ps.parseErrorAt(redir, "expected expression after redirection operator")
+			return nil, ps.parseErrorAt(redir, "expected expression after redirection operator")
 		}
 	}
 	if op.Type == lexer.Printf && len(exprs) == 0 {
-		return PrintStat{}, ps.parseErrorAt(op, "'printf' requires at least one argument")
+		return nil, ps.parseErrorAt(op, "'printf' requires at least one argument")
 	}
-	return PrintStat{
+	return &PrintStat{
 		Print:   op,
 		Exprs:   exprs,
 		RedirOp: redir,
@@ -407,52 +399,52 @@ func (ps *parser) printStat() (PrintStat, error) {
 	}, nil
 }
 
-func (ps *parser) deleteStat() (DeleteStat, error) {
+func (ps *parser) deleteStat() (*DeleteStat, error) {
 	ps.eat(lexer.Delete)
 	op := ps.previous
 	if !ps.check(lexer.Identifier) {
-		return DeleteStat{}, ps.parseErrorAtCurrent("expected name in after 'delete'")
+		return nil, ps.parseErrorAtCurrent("expected name in after 'delete'")
 	}
 	expr, err := ps.termExpr()
 	if err != nil {
-		return DeleteStat{}, err
+		return nil, err
 	}
 	if !ps.checkAllowedAfterStatements() {
-		return DeleteStat{}, ps.parseErrorAtCurrent("unexpected error after delete statement")
+		return nil, ps.parseErrorAtCurrent("unexpected error after delete statement")
 	}
 	lhs := expr.(LhsExpr)
-	return DeleteStat{
+	return &DeleteStat{
 		Delete: op,
 		Lhs:    lhs,
 	}, nil
 }
 
-func (ps *parser) ifStat() (IfStat, error) {
+func (ps *parser) ifStat() (*IfStat, error) {
 	ps.eat(lexer.If)
 	op := ps.previous
 	if !ps.eat(lexer.LeftParen) {
-		return IfStat{}, ps.parseErrorAtCurrent("missing '(' for if statement condition")
+		return nil, ps.parseErrorAtCurrent("missing '(' for if statement condition")
 	}
 	cond, err := ps.expr()
 	if err != nil {
-		return IfStat{}, err
+		return nil, err
 	}
 	if !ps.eat(lexer.RightParen) {
-		return IfStat{}, ps.parseErrorAtCurrent("missing ')' closing if statement condition")
+		return nil, ps.parseErrorAtCurrent("missing ')' closing if statement condition")
 	}
 	ps.eat(lexer.Newline)
 	body, err := ps.stat()
 	if err != nil {
-		return IfStat{}, err
+		return nil, err
 	}
 	var elsebody Stat
 	if ps.eat(lexer.Else) {
 		elsebody, err = ps.stat()
 		if err != nil {
-			return IfStat{}, err
+			return nil, err
 		}
 	}
-	return IfStat{
+	return &IfStat{
 		If:       op,
 		Cond:     cond,
 		Body:     body,
@@ -460,27 +452,27 @@ func (ps *parser) ifStat() (IfStat, error) {
 	}, nil
 }
 
-func (ps *parser) whileStat() (ForStat, error) {
+func (ps *parser) whileStat() (*ForStat, error) {
 	ps.loopdepth++
 	defer func() { ps.loopdepth-- }()
 	ps.eat(lexer.While)
 	op := ps.previous
 	if !ps.eat(lexer.LeftParen) {
-		return ForStat{}, ps.parseErrorAtCurrent("missing '(' for while statement condition")
+		return nil, ps.parseErrorAtCurrent("missing '(' for while statement condition")
 	}
 	cond, err := ps.expr()
 	if err != nil {
-		return ForStat{}, err
+		return nil, err
 	}
 	if !ps.eat(lexer.RightParen) {
-		return ForStat{}, ps.parseErrorAtCurrent("missing ')' closing while statement condition")
+		return nil, ps.parseErrorAtCurrent("missing ')' closing while statement condition")
 	}
 	ps.eat(lexer.Newline)
 	body, err := ps.stat()
 	if err != nil {
-		return ForStat{}, err
+		return nil, err
 	}
-	return ForStat{
+	return &ForStat{
 		For:  op,
 		Cond: cond,
 		Body: body,
@@ -511,7 +503,7 @@ func (ps *parser) doWhileStat() (Stat, error) {
 	}
 	return BlockStat([]Stat{
 		body,
-		ForStat{
+		&ForStat{
 			For:  whileop,
 			Cond: cond,
 			Body: body,
@@ -526,58 +518,60 @@ func (ps *parser) forStat() (Stat, error) {
 	ps.eat(lexer.For)
 	op := ps.previous
 	if !ps.eat(lexer.LeftParen) {
-		return ForStat{}, ps.parseErrorAtCurrent("missing '(' after 'for'")
+		return nil, ps.parseErrorAtCurrent("missing '(' after 'for'")
 	}
 	var init Stat
 	if !ps.check(lexer.Semicolon) {
 		init, err = ps.simpleStat()
 		if err != nil {
-			return ForStat{}, err
+			return nil, err
 		}
 		if ps.eat(lexer.RightParen) {
+			ps.eat(lexer.Newline)
 			return ps.finishForEachStat(op, init)
 		}
 	}
 	if !ps.eat(lexer.Semicolon) {
-		return ForStat{}, ps.parseErrorAtCurrent("expected ';' after for statement initialization")
+		return nil, ps.parseErrorAtCurrent("expected ';' after for statement initialization")
 	}
 
 	var cond Expr
 	if !ps.check(lexer.Semicolon) {
 		cond, err = ps.expr()
 		if err != nil {
-			return ForStat{}, err
+			return nil, err
 		}
 	}
 	if !ps.eat(lexer.Semicolon) {
-		return ForStat{}, ps.parseErrorAtCurrent("expected ';' after for statement condition")
+		return nil, ps.parseErrorAtCurrent("expected ';' after for statement condition")
 	}
 
 	var inc Stat
 	if !ps.check(lexer.RightParen) {
 		inc, err = ps.simpleStat()
 		if err != nil {
-			return ForStat{}, err
+			return nil, err
 		}
 	}
 	if !ps.eat(lexer.RightParen) {
-		return ForStat{}, ps.parseErrorAtCurrent("expected ')' after for statement increment")
+		return nil, ps.parseErrorAtCurrent("expected ')' after for statement increment")
 	}
+	ps.eat(lexer.Newline)
 
 	body, err := ps.stat()
 	if err != nil {
-		return ForStat{}, err
+		return nil, err
 	}
 
 	if cond == nil {
-		cond = NumberExpr{Num: lexer.Token{
+		cond = &NumberExpr{Num: lexer.Token{
 			Type:   lexer.Number,
 			Lexeme: "1",
 			Line:   op.Line,
 		}}
 	}
 
-	return ForStat{
+	return &ForStat{
 		For:  op,
 		Init: init,
 		Cond: cond,
@@ -586,26 +580,26 @@ func (ps *parser) forStat() (Stat, error) {
 	}, nil
 }
 
-func (ps *parser) finishForEachStat(fortok lexer.Token, init Stat) (ForEachStat, error) {
+func (ps *parser) finishForEachStat(fortok lexer.Token, init Stat) (*ForEachStat, error) {
 	ps.eat(lexer.RightParen)
 	rparen := ps.previous
-	exprstat, isexprstat := init.(ExprStat)
+	exprstat, isexprstat := init.(*ExprStat)
 	if !isexprstat {
-		return ForEachStat{}, ps.parseErrorAt(rparen, "expected ';'")
+		return nil, ps.parseErrorAt(rparen, "expected ';'")
 	}
-	inexpr, isinexpr := exprstat.Expr.(InExpr)
+	inexpr, isinexpr := exprstat.Expr.(*InExpr)
 	if !isinexpr {
-		return ForEachStat{}, ps.parseErrorAt(rparen, "expected ';'")
+		return nil, ps.parseErrorAt(rparen, "expected ';'")
 	}
-	id, isid := inexpr.Left.(IdExpr)
+	id, isid := inexpr.Left.(*IdExpr)
 	if !isid {
-		return ForEachStat{}, ps.parseErrorAt(rparen, "expected ';'")
+		return nil, ps.parseErrorAt(rparen, "expected ';'")
 	}
 	body, err := ps.stat()
 	if err != nil {
-		return ForEachStat{}, err
+		return nil, err
 	}
-	return ForEachStat{
+	return &ForEachStat{
 		For:   fortok,
 		Id:    id,
 		In:    inexpr.Op,
@@ -673,7 +667,7 @@ func (ps *parser) pipeGetlineExpr() (Expr, error) {
 				return nil, ps.parseErrorAt(op, "expected lhs after 'getline'")
 			}
 		}
-		return GetlineExpr{
+		return &GetlineExpr{
 			Op:       op,
 			Getline:  getline,
 			Variable: variable,
@@ -714,13 +708,13 @@ func (ps *parser) assignExpr() (Expr, error) {
 			op.Type = lexer.Minus
 		}
 		if op.Type != lexer.Assign {
-			right = BinaryExpr{
+			right = &BinaryExpr{
 				Left:  left,
 				Op:    op,
 				Right: right,
 			}
 		}
-		return AssignExpr{
+		return &AssignExpr{
 			Left:  lhs,
 			Equal: equal,
 			Right: right,
@@ -747,7 +741,7 @@ func (ps *parser) ternaryExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		return TernaryExpr{
+		return &TernaryExpr{
 			Cond:     cond,
 			Question: op,
 			Expr0:    expr0,
@@ -768,7 +762,7 @@ func (ps *parser) orExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = BinaryBoolExpr{
+		left = &BinaryBoolExpr{
 			Left:  left,
 			Op:    op,
 			Right: right,
@@ -788,7 +782,7 @@ func (ps *parser) andExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = BinaryBoolExpr{
+		left = &BinaryBoolExpr{
 			Left:  left,
 			Op:    op,
 			Right: right,
@@ -808,7 +802,7 @@ func (ps *parser) matchExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = MatchExpr{
+		left = &MatchExpr{
 			Left:  left,
 			Op:    op,
 			Right: right,
@@ -829,11 +823,11 @@ func (ps *parser) inExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		id, isid := right.(IdExpr)
+		id, isid := right.(*IdExpr)
 		if !isid {
 			return nil, ps.parseErrorAt(op, "cannot use 'in' for non identifier")
 		}
-		left = InExpr{
+		left = &InExpr{
 			Left:  left,
 			Op:    op,
 			Right: id,
@@ -856,7 +850,7 @@ func (ps *parser) comparisonExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = BinaryExpr{
+		left = &BinaryExpr{
 			Left:  left,
 			Op:    op,
 			Right: right,
@@ -880,7 +874,7 @@ func (ps *parser) concatExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = BinaryExpr{
+		left = &BinaryExpr{
 			Left:  left,
 			Op:    op,
 			Right: right,
@@ -900,7 +894,7 @@ func (ps *parser) addExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = BinaryExpr{
+		left = &BinaryExpr{
 			Left:  left,
 			Op:    op,
 			Right: right,
@@ -920,7 +914,7 @@ func (ps *parser) mulExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = BinaryExpr{
+		left = &BinaryExpr{
 			Left:  left,
 			Op:    op,
 			Right: right,
@@ -936,7 +930,7 @@ func (ps *parser) unaryExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		return UnaryExpr{
+		return &UnaryExpr{
 			Op:    op,
 			Right: right,
 		}, nil
@@ -959,7 +953,7 @@ func (ps *parser) expExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = BinaryExpr{
+		left = &BinaryExpr{
 			Left:  left,
 			Op:    op,
 			Right: right,
@@ -979,8 +973,8 @@ func (ps *parser) preIncrementExpr() (Expr, error) {
 		if !islhs {
 			return nil, ps.parseErrorAt(op, "cannot use pre-increment or pre-decrement operator on non lvalue")
 		}
-		return PreIncrementExpr{
-			IncrementExpr{
+		return &PreIncrementExpr{
+			&IncrementExpr{
 				Op:  op,
 				Lhs: lhs,
 			},
@@ -1001,8 +995,8 @@ func (ps *parser) postIncrementExpr() (Expr, error) {
 		if !islhs {
 			return nil, ps.parseErrorAt(op, "cannot use post-increment or post-decrement operator on non lvalue")
 		}
-		return PostIncrementExpr{
-			IncrementExpr{
+		return &PostIncrementExpr{
+			&IncrementExpr{
 				Op:  op,
 				Lhs: lhs,
 			},
@@ -1018,7 +1012,7 @@ func (ps *parser) dollarExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		return DollarExpr{
+		return &DollarExpr{
 			Dollar: dollar,
 			Field:  expr,
 		}, nil
@@ -1032,12 +1026,12 @@ func (ps *parser) termExpr() (Expr, error) {
 	var err error
 	switch ps.current.Type {
 	case lexer.Number:
-		sub, err = NumberExpr{
+		sub, err = &NumberExpr{
 			Num: ps.current,
 		}, nil
 		ps.advance()
 	case lexer.String:
-		sub, err = StringExpr{
+		sub, err = &StringExpr{
 			Str: ps.current,
 		}, nil
 		ps.advance()
@@ -1049,7 +1043,7 @@ func (ps *parser) termExpr() (Expr, error) {
 		if ps.eat(lexer.LeftSquare) {
 			sub, err = ps.insideIndexing(id)
 		} else {
-			sub, err = IdExpr{
+			sub, err = &IdExpr{
 				Id: id,
 			}, nil
 		}
@@ -1057,6 +1051,8 @@ func (ps *parser) termExpr() (Expr, error) {
 		id := ps.current
 		ps.advance()
 		sub, err = ps.callExpr(id)
+	case lexer.Length:
+		sub, err = ps.lengthExpr()
 	case lexer.Getline:
 		sub, err = ps.getlineExpr()
 	case lexer.Slash:
@@ -1076,13 +1072,38 @@ func (ps *parser) termExpr() (Expr, error) {
 	return sub, err
 }
 
+func (ps *parser) lengthExpr() (Expr, error) {
+	ps.eat(lexer.Length)
+	op := ps.previous
+	if !ps.eat(lexer.LeftParen) {
+		return &LengthExpr{
+			Length: op,
+		}, nil
+	}
+	var expr Expr
+	if !ps.check(lexer.RightParen) {
+		var err error
+		expr, err = ps.expr()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !ps.eat(lexer.RightParen) {
+		return nil, ps.parseErrorAtCurrent("expected closing ')' for 'length'")
+	}
+	return &LengthExpr{
+		Length: op,
+		Arg:    expr,
+	}, nil
+}
+
 func (ps *parser) regexExpr() (Expr, error) {
 	ps.advanceRegex()
 	if ps.current.Type == lexer.Error {
 		return nil, ps.parseErrorAtCurrent("")
 	}
 	ps.advance()
-	return RegexExpr{
+	return &RegexExpr{
 		Regex: ps.previous,
 	}, nil
 }
@@ -1097,8 +1118,8 @@ func (ps *parser) callExpr(called lexer.Token) (Expr, error) {
 	if !ps.eat(lexer.RightParen) {
 		return nil, ps.parseErrorAtCurrent("expected ')' after call")
 	}
-	return CallExpr{
-		Called: IdExpr{
+	return &CallExpr{
+		Called: &IdExpr{
 			Id: called,
 		},
 		Args: exprs,
@@ -1132,7 +1153,7 @@ func (ps *parser) getlineExpr() (Expr, error) {
 			return nil, err
 		}
 	}
-	return GetlineExpr{
+	return &GetlineExpr{
 		Op:       op,
 		Getline:  getline,
 		Variable: variable,
@@ -1160,7 +1181,7 @@ func (ps *parser) groupingExpr() (Expr, error) {
 }
 
 func (ps *parser) insideIndexing(id lexer.Token) (Expr, error) {
-	idexpr := IdExpr{
+	idexpr := &IdExpr{
 		Id: id,
 	}
 	exprs, err := ps.exprList(func() bool { return ps.check(lexer.RightSquare) })
@@ -1170,7 +1191,7 @@ func (ps *parser) insideIndexing(id lexer.Token) (Expr, error) {
 	if !ps.eat(lexer.RightSquare) {
 		return nil, ps.parseErrorAtCurrent("expected ']'")
 	}
-	return IndexingExpr{
+	return &IndexingExpr{
 		Id:    idexpr,
 		Index: exprs,
 	}, nil
@@ -1258,4 +1279,12 @@ func (ps *parser) checkEndOfPrintExprList() bool {
 
 func (ps *parser) checkAllowedAfterStatements() bool {
 	return ps.checkTerminator() || ps.check(lexer.RightCurly)
+}
+
+func (ps *parser) isInGetline() bool {
+	return ps.ingetline && ps.parendepth == 0
+}
+
+func (ps *parser) isInPrint() bool {
+	return ps.inprint && ps.parendepth == 0
 }

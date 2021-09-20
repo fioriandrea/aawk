@@ -24,20 +24,28 @@ type Callable interface {
 	Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error)
 }
 
-type AwkFunction struct {
-	parser.FunctionDef
-	locals []awkvalue
+type UserFunction struct {
+	Arity int
+	Body  parser.BlockStat
 }
 
-func (af *AwkFunction) Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-	if af.locals == nil {
-		af.locals = make([]awkvalue, len(af.Args))
+func (inter *interpreter) giveStackFrame(size int) ([]awkvalue, int) {
+	if inter.stackcount+size > cap(inter.stack) {
+		return make([]awkvalue, size), 0
 	}
-	subenv := newEnvironment(inter.env, af.locals)
+	inter.stackcount += size
+	return inter.stack[inter.stackcount-size : inter.stackcount], size
+}
 
-	linkarrays := map[int]parser.IdExpr{}
+func (inter *interpreter) releaseStackFrame(size int) {
+	inter.stackcount -= size
+}
 
-	for i := range af.Args {
+func (f *UserFunction) Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	sublocals, size := inter.giveStackFrame(f.Arity)
+
+	linkarrays := map[int]*parser.IdExpr{}
+	for i := 0; i < f.Arity; i++ {
 		var arg parser.Expr
 		if len(args) > 0 {
 			arg = args[0]
@@ -45,12 +53,12 @@ func (af *AwkFunction) Call(inter *interpreter, called lexer.Token, args []parse
 		}
 		v, err := inter.eval(arg)
 		if err != nil {
-			return nil, err
+			return null(), err
 		}
-		subenv.locals[i] = v
+		sublocals[i] = v
 
-		// undefined values could be used as an array
-		if idexpr, ok := arg.(parser.IdExpr); ok && v == nil {
+		// undefined values could be used as arrays
+		if idexpr, ok := arg.(*parser.IdExpr); ok && v.typ == Null {
 			linkarrays[i] = idexpr
 		}
 	}
@@ -58,28 +66,34 @@ func (af *AwkFunction) Call(inter *interpreter, called lexer.Token, args []parse
 	for _, arg := range args {
 		_, err := inter.eval(arg)
 		if err != nil {
-			return nil, err
+			return null(), err
 		}
 	}
-	inter.env = subenv
-	defer func() { inter.env = subenv.calling }()
 
-	err := inter.execute(af.Body)
+	prevlocals := inter.locals
+	inter.locals = sublocals
+
+	defer func() {
+		// link back arrays
+		inter.locals = prevlocals
+		inter.releaseStackFrame(size)
+
+		for local, calling := range linkarrays {
+			v := sublocals[local]
+			if v.typ == Array {
+				inter.setVariable(calling, v)
+			}
+		}
+	}()
+
+	err := inter.execute(f.Body)
 	var retval awkvalue
 	if errRet, ok := err.(errorReturn); ok {
-		retval = errRet.val
+		retval = awkvalue(errRet)
 	} else if err != nil {
-		return nil, err
+		return null(), err
 	}
 
-	// link back arrays
-	inter.env = subenv.calling
-	for local, calling := range linkarrays {
-		v := subenv.locals[local]
-		if _, ok := v.(awkarray); ok {
-			inter.setVariable(calling, v)
-		}
-	}
 	return retval, nil
 }
 
@@ -89,22 +103,11 @@ func (nf NativeFunction) Call(inter *interpreter, called lexer.Token, args []par
 	return nf(inter, called, args)
 }
 
-var Builtins = map[string]NativeFunction{
-	"length": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-		if len(args) > 1 {
-			return nil, inter.runtimeError(called, "too may arguments")
-		}
-		strv, err := inter.eval(getExprAtOrNil(0, args))
-		if err != nil {
-			return nil, err
-		}
-		return awknumber(len([]rune(inter.toGoString(strv)))), nil
-	},
-
+var Builtinfuncs = map[string]NativeFunction{
 	"close": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 		file, err := inter.eval(getExprAtOrNil(0, args))
 		if err != nil {
-			return nil, err
+			return null(), err
 		}
 		str := inter.toGoString(file)
 		opr := inter.outprograms.close(str)
@@ -123,7 +126,7 @@ var Builtins = map[string]NativeFunction{
 			iprn = 1
 		}
 
-		return awknumber(oprn + ofn + iprn), nil
+		return awknumber(float64(oprn + ofn + iprn)), nil
 	},
 
 	"sprintf": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
@@ -133,109 +136,109 @@ var Builtins = map[string]NativeFunction{
 		var str strings.Builder
 		err := inter.fprintf(&str, called, args)
 		if err != nil {
-			return nil, err
+			return null(), err
 		}
 		return awknormalstring(str.String()), nil
 	},
 
 	"sqrt": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 		if len(args) > 1 {
-			return nil, inter.runtimeError(called, "too may arguments")
+			return null(), inter.runtimeError(called, "too may arguments")
 		}
 		n, err := inter.eval(getExprAtOrNil(0, args))
 		if err != nil {
-			return nil, err
+			return null(), err
 		}
-		num := inter.toGoFloat(n)
+		num := n.float()
 		if num < 0 {
-			return nil, inter.runtimeError(called, "cannot compute sqrt of a negative number")
+			return null(), inter.runtimeError(called, "cannot compute sqrt of a negative number")
 		}
 		return awknumber(math.Sqrt(num)), nil
 	},
 
 	"log": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 		if len(args) > 1 {
-			return nil, inter.runtimeError(called, "too may arguments")
+			return null(), inter.runtimeError(called, "too may arguments")
 		}
 		n, err := inter.eval(getExprAtOrNil(0, args))
 		if err != nil {
-			return nil, err
+			return null(), err
 		}
-		num := inter.toGoFloat(n)
+		num := n.float()
 		if num <= 0 {
-			return nil, inter.runtimeError(called, "cannot compute log of a number <= 0")
+			return null(), inter.runtimeError(called, "cannot compute log of a number <= 0")
 		}
 		return awknumber(math.Log(num)), nil
 	},
 
 	"sin": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 		if len(args) > 1 {
-			return nil, inter.runtimeError(called, "too may arguments")
+			return null(), inter.runtimeError(called, "too may arguments")
 		}
 		n, err := inter.eval(getExprAtOrNil(0, args))
 		if err != nil {
-			return nil, err
+			return null(), err
 		}
-		num := inter.toGoFloat(n)
+		num := n.float()
 		return awknumber(math.Sin(num)), nil
 	},
 
 	"cos": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 		if len(args) > 1 {
-			return nil, inter.runtimeError(called, "too may arguments")
+			return null(), inter.runtimeError(called, "too may arguments")
 		}
 		n, err := inter.eval(getExprAtOrNil(0, args))
 		if err != nil {
-			return nil, err
+			return null(), err
 		}
-		num := inter.toGoFloat(n)
+		num := n.float()
 		return awknumber(math.Cos(num)), nil
 	},
 
 	"exp": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 		if len(args) > 1 {
-			return nil, inter.runtimeError(called, "too may arguments")
+			return null(), inter.runtimeError(called, "too may arguments")
 		}
 		n, err := inter.eval(getExprAtOrNil(0, args))
 		if err != nil {
-			return nil, err
+			return null(), err
 		}
-		num := inter.toGoFloat(n)
+		num := n.float()
 		return awknumber(math.Exp(num)), nil
 	},
 
 	"atan2": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 		if len(args) > 2 {
-			return nil, inter.runtimeError(called, "too may arguments")
+			return null(), inter.runtimeError(called, "too may arguments")
 		}
 		n1, err := inter.eval(getExprAtOrNil(0, args))
 		if err != nil {
-			return nil, err
+			return null(), err
 		}
 		n2, err := inter.eval(getExprAtOrNil(1, args))
 		if err != nil {
-			return nil, err
+			return null(), err
 		}
-		num1 := inter.toGoFloat(n1)
-		num2 := inter.toGoFloat(n2)
+		num1 := n1.float()
+		num2 := n2.float()
 		return awknumber(math.Atan2(num1, num2)), nil
 	},
 
 	"int": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 		if len(args) > 1 {
-			return nil, inter.runtimeError(called, "too may arguments")
+			return null(), inter.runtimeError(called, "too may arguments")
 		}
 		n, err := inter.eval(getExprAtOrNil(0, args))
 		if err != nil {
-			return nil, err
+			return null(), err
 		}
-		num := inter.toGoFloat(n)
-		return awknumber(int(num)), nil
+		num := n.float()
+		return awknumber(float64(int(num))), nil
 	},
 
 	"rand": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 		if len(args) > 0 {
-			return nil, inter.runtimeError(called, "too may arguments")
+			return null(), inter.runtimeError(called, "too may arguments")
 		}
 		n := inter.rng.Float64()
 		return awknumber(n), nil
@@ -243,7 +246,7 @@ var Builtins = map[string]NativeFunction{
 
 	"srand": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 		if len(args) > 1 {
-			return nil, inter.runtimeError(called, "too many arguments")
+			return null(), inter.runtimeError(called, "too many arguments")
 		}
 		ret := inter.rng.rngseed
 		if len(args) == 0 {
@@ -251,11 +254,11 @@ var Builtins = map[string]NativeFunction{
 		} else {
 			seed, err := inter.eval(args[0])
 			if err != nil {
-				return nil, err
+				return null(), err
 			}
-			inter.rng.SetSeed(int64(inter.toGoFloat(seed)))
+			inter.rng.SetSeed(int64(seed.float()))
 		}
-		return awknumber(ret), nil
+		return awknumber(float64(ret)), nil
 	},
 }
 
@@ -266,20 +269,21 @@ func (inter *interpreter) parseFmtTypes(print lexer.Token, s string) (format str
 		return format, types, nil
 	}
 
+	ofmt := inter.getOfmt()
 	tostr := func(v awkvalue) interface{} {
-		return inter.toGoString(v)
+		return v.string(ofmt)
 	}
 	tofloat := func(v awkvalue) interface{} {
-		return inter.toGoFloat(v)
+		return v.float()
 	}
 	toint := func(v awkvalue) interface{} {
-		return int(inter.toGoFloat(v))
+		return int(v.float())
 	}
 	touint := func(v awkvalue) interface{} {
-		return uint(inter.toGoFloat(v))
+		return uint(v.float())
 	}
 	tochar := func(v awkvalue) interface{} {
-		return []rune(inter.toGoString(v))[0]
+		return []rune(v.string(ofmt))[0]
 	}
 
 	out := []byte(s)
@@ -334,7 +338,7 @@ func (inter *interpreter) fprintf(w io.Writer, print lexer.Token, exprs []parser
 	if err != nil {
 		return err
 	}
-	formatstr, convs, err := inter.parseFmtTypes(print, inter.toGoString(format))
+	formatstr, convs, err := inter.parseFmtTypes(print, format.string(inter.getConvfmt()))
 	if err != nil {
 		return nil
 	}
@@ -347,8 +351,7 @@ func (inter *interpreter) fprintf(w io.Writer, print lexer.Token, exprs []parser
 		if err != nil {
 			return err
 		}
-		_, isarr := arg.(awkarray)
-		if isarr {
+		if arg.typ == Array {
 			return inter.runtimeError(print, "cannot print array")
 		}
 		args = append(args, convs[0](arg))

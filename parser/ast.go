@@ -23,7 +23,7 @@ type BinaryExpr struct {
 	Expr
 }
 
-func (e BinaryExpr) Token() lexer.Token {
+func (e *BinaryExpr) Token() lexer.Token {
 	return e.Op
 }
 
@@ -34,7 +34,7 @@ type BinaryBoolExpr struct {
 	Expr
 }
 
-func (e BinaryBoolExpr) Token() lexer.Token {
+func (e *BinaryBoolExpr) Token() lexer.Token {
 	return e.Op
 }
 
@@ -44,7 +44,7 @@ type UnaryExpr struct {
 	Expr
 }
 
-func (e UnaryExpr) Token() lexer.Token {
+func (e *UnaryExpr) Token() lexer.Token {
 	return e.Op
 }
 
@@ -54,7 +54,7 @@ type NumberExpr struct {
 	Expr
 }
 
-func (e NumberExpr) Token() lexer.Token {
+func (e *NumberExpr) Token() lexer.Token {
 	return e.Num
 }
 
@@ -63,7 +63,7 @@ type StringExpr struct {
 	Expr
 }
 
-func (e StringExpr) Token() lexer.Token {
+func (e *StringExpr) Token() lexer.Token {
 	return e.Str
 }
 
@@ -72,7 +72,7 @@ type RegexExpr struct {
 	Expr
 }
 
-func (e RegexExpr) Token() lexer.Token {
+func (e *RegexExpr) Token() lexer.Token {
 	return e.Regex
 }
 
@@ -83,7 +83,7 @@ type MatchExpr struct {
 	Expr
 }
 
-func (e MatchExpr) Token() lexer.Token {
+func (e *MatchExpr) Token() lexer.Token {
 	return e.Op
 }
 
@@ -94,7 +94,7 @@ type AssignExpr struct {
 	Expr
 }
 
-func (e AssignExpr) Token() lexer.Token {
+func (e *AssignExpr) Token() lexer.Token {
 	return e.Equal
 }
 
@@ -108,20 +108,21 @@ type IdExpr struct {
 	Index         int
 	LocalIndex    int
 	FunctionIndex int
+	BuiltinIndex  int
 	LhsExpr
 }
 
-func (e IdExpr) Token() lexer.Token {
+func (e *IdExpr) Token() lexer.Token {
 	return e.Id
 }
 
 type IndexingExpr struct {
-	Id    IdExpr
+	Id    *IdExpr
 	Index []Expr
 	LhsExpr
 }
 
-func (e IndexingExpr) Token() lexer.Token {
+func (e *IndexingExpr) Token() lexer.Token {
 	return e.Id.Token()
 }
 
@@ -131,7 +132,7 @@ type DollarExpr struct {
 	LhsExpr
 }
 
-func (e DollarExpr) Token() lexer.Token {
+func (e *DollarExpr) Token() lexer.Token {
 	return e.Dollar
 }
 
@@ -141,16 +142,16 @@ type IncrementExpr struct {
 	Expr
 }
 
-func (e IncrementExpr) Token() lexer.Token {
+func (e *IncrementExpr) Token() lexer.Token {
 	return e.Op
 }
 
 type PreIncrementExpr struct {
-	IncrementExpr
+	*IncrementExpr
 }
 
 type PostIncrementExpr struct {
-	IncrementExpr
+	*IncrementExpr
 }
 
 type TernaryExpr struct {
@@ -161,7 +162,7 @@ type TernaryExpr struct {
 	Expr
 }
 
-func (e TernaryExpr) Token() lexer.Token {
+func (e *TernaryExpr) Token() lexer.Token {
 	return e.Question
 }
 
@@ -173,28 +174,38 @@ type GetlineExpr struct {
 	Expr
 }
 
-func (e GetlineExpr) Token() lexer.Token {
+func (e *GetlineExpr) Token() lexer.Token {
 	return e.Getline
 }
 
+type LengthExpr struct {
+	Length lexer.Token
+	Arg    Expr
+	Expr
+}
+
+func (e *LengthExpr) Token() lexer.Token {
+	return e.Length
+}
+
 type CallExpr struct {
-	Called IdExpr
+	Called *IdExpr
 	Args   []Expr
 	Expr
 }
 
-func (e CallExpr) Token() lexer.Token {
+func (e *CallExpr) Token() lexer.Token {
 	return e.Called.Id
 }
 
 type InExpr struct {
 	Left  Expr
 	Op    lexer.Token
-	Right IdExpr
+	Right *IdExpr
 	Expr
 }
 
-func (e InExpr) Token() lexer.Token {
+func (e *InExpr) Token() lexer.Token {
 	return e.Op
 }
 
@@ -218,7 +229,7 @@ type ExprStat struct {
 	Stat
 }
 
-func (s ExprStat) Token() lexer.Token {
+func (s *ExprStat) Token() lexer.Token {
 	return s.Expr.Token()
 }
 
@@ -230,7 +241,7 @@ type PrintStat struct {
 	Stat
 }
 
-func (s PrintStat) Token() lexer.Token {
+func (s *PrintStat) Token() lexer.Token {
 	return s.Print
 }
 
@@ -240,7 +251,7 @@ type DeleteStat struct {
 	Stat
 }
 
-func (s DeleteStat) Token() lexer.Token {
+func (s *DeleteStat) Token() lexer.Token {
 	return s.Delete
 }
 
@@ -252,7 +263,7 @@ type IfStat struct {
 	Stat
 }
 
-func (s IfStat) Token() lexer.Token {
+func (s *IfStat) Token() lexer.Token {
 	return s.If
 }
 
@@ -265,20 +276,20 @@ type ForStat struct {
 	Stat
 }
 
-func (s ForStat) Token() lexer.Token {
+func (s *ForStat) Token() lexer.Token {
 	return s.For
 }
 
 type ForEachStat struct {
 	For   lexer.Token
-	Id    IdExpr
+	Id    *IdExpr
 	In    lexer.Token
-	Array IdExpr
+	Array *IdExpr
 	Body  Stat
 	Stat
 }
 
-func (s ForEachStat) Token() lexer.Token {
+func (s *ForEachStat) Token() lexer.Token {
 	return s.For
 }
 
@@ -287,7 +298,7 @@ type NextStat struct {
 	Stat
 }
 
-func (s NextStat) Token() lexer.Token {
+func (s *NextStat) Token() lexer.Token {
 	return s.Next
 }
 
@@ -296,7 +307,7 @@ type BreakStat struct {
 	Stat
 }
 
-func (s BreakStat) Token() lexer.Token {
+func (s *BreakStat) Token() lexer.Token {
 	return s.Break
 }
 
@@ -305,7 +316,7 @@ type ContinueStat struct {
 	Stat
 }
 
-func (s ContinueStat) Token() lexer.Token {
+func (s *ContinueStat) Token() lexer.Token {
 	return s.Continue
 }
 
@@ -315,7 +326,7 @@ type ReturnStat struct {
 	Stat
 }
 
-func (s ReturnStat) Token() lexer.Token {
+func (s *ReturnStat) Token() lexer.Token {
 	return s.Return
 }
 
@@ -325,7 +336,7 @@ type ExitStat struct {
 	Stat
 }
 
-func (s ExitStat) Token() lexer.Token {
+func (s *ExitStat) Token() lexer.Token {
 	return s.Exit
 }
 
@@ -355,11 +366,15 @@ type FunctionDef struct {
 	Item
 }
 
+func (i *FunctionDef) isItem() {}
+
 type PatternAction struct {
 	Pattern Pattern
 	Action  BlockStat
 	Item
 }
+
+func (i *PatternAction) isItem() {}
 
 type Pattern interface {
 	isPattern()
@@ -371,7 +386,7 @@ type SpecialPattern struct {
 	Pattern
 }
 
-func (p SpecialPattern) Token() lexer.Token {
+func (p *SpecialPattern) Token() lexer.Token {
 	return p.Type
 }
 
@@ -380,7 +395,7 @@ type ExprPattern struct {
 	Pattern
 }
 
-func (p ExprPattern) Token() lexer.Token {
+func (p *ExprPattern) Token() lexer.Token {
 	return p.Expr.Token()
 }
 
@@ -391,6 +406,6 @@ type RangePattern struct {
 	Pattern
 }
 
-func (p RangePattern) Token() lexer.Token {
+func (p *RangePattern) Token() lexer.Token {
 	return p.Comma
 }
