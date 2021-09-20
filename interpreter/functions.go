@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
+	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/fioriandrea/aawk/lexer"
@@ -260,6 +263,43 @@ var Builtinfuncs = map[string]NativeFunction{
 		}
 		return awknumber(float64(ret)), nil
 	},
+
+	"system": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+		if len(args) != 1 {
+			return null(), inter.runtimeError(called, "invalid number of arguments")
+		}
+		v, err := inter.eval(args[0])
+		if err != nil {
+			return null(), err
+		}
+		cmdstr := inter.toGoString(v)
+		return awknumber(float64(System(cmdstr))), nil
+	},
+}
+
+func System(cmd string) int {
+	c := exec.Command("sh", "-c", cmd)
+	c.Stdin = os.Stdin
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	err := c.Run()
+
+	if err == nil {
+		return 0
+	}
+
+	// Figure out the exit code
+	if ws, ok := c.ProcessState.Sys().(syscall.WaitStatus); ok {
+		if ws.Exited() {
+			return ws.ExitStatus()
+		}
+
+		if ws.Signaled() {
+			return -int(ws.Signal())
+		}
+	}
+
+	return -1
 }
 
 // Source: https://github.com/benhoyt/goawk/blob/master/interp/functions.go
