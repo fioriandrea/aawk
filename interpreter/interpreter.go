@@ -554,22 +554,20 @@ func (inter *interpreter) evalMatchExpr(me *parser.MatchExpr) (awkvalue, error) 
 }
 
 func (inter *interpreter) evalRegex(e parser.Expr) (*regexp.Regexp, error) {
-	var regexstr string
 	switch v := e.(type) {
 	case *parser.RegexExpr:
-		regexstr = v.Regex.Lexeme
+		return v.Compiled, nil
 	default:
 		rev, err := inter.eval(e)
 		if err != nil {
 			return nil, err
 		}
-		regexstr = rev.string(inter.getConvfmt())
+		res, err := regexp.Compile(inter.toGoString(rev))
+		if err != nil {
+			return nil, inter.runtimeError(e.Token(), "invalid regular expression")
+		}
+		return res, nil
 	}
-	res, err := regexp.Compile(regexstr)
-	if err != nil {
-		return nil, inter.runtimeError(e.Token(), "invalid regular expression")
-	}
-	return res, nil
 }
 
 func (inter *interpreter) evalAnd(bb *parser.BinaryBoolExpr) (awkvalue, error) {

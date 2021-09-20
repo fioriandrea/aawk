@@ -1,6 +1,10 @@
 package parser
 
-import "github.com/fioriandrea/aawk/lexer"
+import (
+	"regexp"
+
+	"github.com/fioriandrea/aawk/lexer"
+)
 
 type Node interface {
 	isNode()
@@ -68,7 +72,8 @@ func (e *StringExpr) Token() lexer.Token {
 }
 
 type RegexExpr struct {
-	Regex lexer.Token
+	Regex    lexer.Token
+	Compiled *regexp.Regexp
 	Expr
 }
 

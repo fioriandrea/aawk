@@ -3,6 +3,7 @@ package resolver
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 
 	"github.com/fioriandrea/aawk/lexer"
@@ -273,6 +274,8 @@ func (res *resolver) expr(ex parser.Expr) error {
 		return res.numberExpr(e)
 	case *parser.LengthExpr:
 		return res.lengthExpr(e)
+	case *parser.RegexExpr:
+		return res.regexExpr(e)
 	}
 	return nil
 }
@@ -482,6 +485,12 @@ func (res *resolver) numberExpr(e *parser.NumberExpr) error {
 
 func (res *resolver) lengthExpr(e *parser.LengthExpr) error {
 	return res.expr(e.Arg)
+}
+
+func (res *resolver) regexExpr(e *parser.RegexExpr) error {
+	c := regexp.MustCompile(e.Regex.Lexeme)
+	e.Compiled = c
+	return nil
 }
 
 func (res *resolver) exprs(es []parser.Expr) error {
