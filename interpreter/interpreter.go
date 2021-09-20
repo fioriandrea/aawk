@@ -19,9 +19,7 @@ var ErrNext = errors.New("next")
 var ErrBreak = errors.New("break")
 var ErrContinue = errors.New("continue")
 
-type errorReturn struct {
-	val awkvalue
-}
+type errorReturn awkvalue
 
 func (er errorReturn) Error() string {
 	return "return"
@@ -233,9 +231,7 @@ func (inter *interpreter) executeReturn(rs *parser.ReturnStat) error {
 	if err != nil {
 		return err
 	}
-	return errorReturn{
-		val: v,
-	}
+	return errorReturn(v)
 }
 
 func (inter *interpreter) executeExit(es *parser.ExitStat) error {
@@ -767,9 +763,9 @@ func (inter *interpreter) evalIndex(ind []parser.Expr) (awkvalue, error) {
 	for _, expr := range ind {
 		res, err := inter.eval(expr)
 		if err != nil {
-			return awknormalstring(""), err
+			return null(), err
 		}
-		indices = append(indices, res.string(inter.getConvfmt()))
+		indices = append(indices, inter.toGoString(res))
 	}
 	return awknormalstring(strings.Join(indices, inter.toGoString(inter.builtins[lexer.Subsep]))), nil
 }

@@ -89,7 +89,7 @@ func (f *UserFunction) Call(inter *interpreter, called lexer.Token, args []parse
 	err := inter.execute(f.Body)
 	var retval awkvalue
 	if errRet, ok := err.(errorReturn); ok {
-		retval = errRet.val
+		retval = awkvalue(errRet)
 	} else if err != nil {
 		return null(), err
 	}
