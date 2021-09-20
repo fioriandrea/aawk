@@ -69,7 +69,7 @@ func (ps *parser) functionItem() (*FunctionDef, error) {
 	}
 	args := make([]lexer.Token, 0)
 	for ps.eat(lexer.Identifier) {
-		if lexer.Builtinvars[ps.previous.Lexeme] {
+		if _, ok := lexer.Builtinvars[ps.previous.Lexeme]; ok {
 			return nil, ps.parseErrorAt(ps.previous, "cannot use built in variable as function parameter")
 		}
 		args = append(args, ps.previous)

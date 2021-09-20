@@ -43,6 +43,13 @@ func (v awkvalue) float() float64 {
 	return v.n
 }
 
+func (v awkvalue) bool() bool {
+	if v.typ == Normalstring {
+		return v.str != ""
+	}
+	return v.n != 0
+}
+
 func (v awkvalue) string(format string) string {
 	if v.typ != Number {
 		return v.str

@@ -89,23 +89,42 @@ const (
 	TokenCount
 )
 
-var Builtinvars = map[string]bool{
-	"ARGC":     true,
-	"ARGV":     true,
-	"CONVFMT":  true,
-	"ENVIRON":  true,
-	"FILENAME": true,
-	"FNR":      true,
-	"FS":       true,
-	"NF":       true,
-	"NR":       true,
-	"OFMT":     true,
-	"OFS":      true,
-	"ORS":      true,
-	"RLENGTH":  true,
-	"RS":       true,
-	"RSTART":   true,
-	"SUBSEP":   true,
+const (
+	Argc = iota
+	Argv
+	Convfmt
+	Environ
+	Filename
+	Fnr
+	Fs
+	Nf
+	Nr
+	Ofmt
+	Ofs
+	Ors
+	Rlength
+	Rs
+	Rstart
+	Subsep
+)
+
+var Builtinvars = map[string]int{
+	"ARGC":     Argc,
+	"ARGV":     Argv,
+	"CONVFMT":  Convfmt,
+	"ENVIRON":  Environ,
+	"FILENAME": Filename,
+	"FNR":      Fnr,
+	"FS":       Fs,
+	"NF":       Nf,
+	"NR":       Nr,
+	"OFMT":     Ofmt,
+	"OFS":      Ofs,
+	"ORS":      Ors,
+	"RLENGTH":  Rlength,
+	"RS":       Rs,
+	"RSTART":   Rstart,
+	"SUBSEP":   Subsep,
 }
 
 var keywords = map[string]TokenType{

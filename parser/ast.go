@@ -108,6 +108,7 @@ type IdExpr struct {
 	Index         int
 	LocalIndex    int
 	FunctionIndex int
+	BuiltinIndex  int
 	LhsExpr
 }
 

@@ -354,6 +354,7 @@ func (res *resolver) idExpr(e *parser.IdExpr) error {
 		e.LocalIndex = li
 		e.Index = -1
 		e.FunctionIndex = -1
+		e.BuiltinIndex = -1
 		return nil
 	}
 
@@ -361,10 +362,11 @@ func (res *resolver) idExpr(e *parser.IdExpr) error {
 		return res.resolveError(e.Token(), "cannot use function in variable context")
 	}
 
-	if _, ok := lexer.Builtinvars[e.Id.Lexeme]; ok {
+	if i, ok := lexer.Builtinvars[e.Id.Lexeme]; ok {
 		e.LocalIndex = -1
 		e.Index = -1
 		e.FunctionIndex = -1
+		e.BuiltinIndex = i
 		return nil
 	}
 	i, iok := res.indices[e.Id.Lexeme]
@@ -372,11 +374,13 @@ func (res *resolver) idExpr(e *parser.IdExpr) error {
 		e.LocalIndex = -1
 		e.Index = i
 		e.FunctionIndex = -1
+		e.BuiltinIndex = -1
 		return nil
 	}
 	e.Index = len(res.indices)
 	e.LocalIndex = -1
 	e.FunctionIndex = -1
+	e.BuiltinIndex = -1
 	res.indices[e.Id.Lexeme] = e.Index
 	return nil
 }
