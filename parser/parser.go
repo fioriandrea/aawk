@@ -19,7 +19,7 @@ type parser struct {
 	infunction bool
 }
 
-func GetSyntaxTree(lexer lexer.Lexer) ([]Item, error) {
+func GetItems(lexer lexer.Lexer) ([]Item, error) {
 	ps := parser{
 		lexer: lexer,
 	}

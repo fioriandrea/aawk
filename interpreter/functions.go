@@ -48,7 +48,7 @@ func (f *UserFunction) Call(inter *interpreter, called lexer.Token, args []parse
 			arg = args[0]
 			args = args[1:]
 		}
-		v, err := inter.eval(arg)
+		v, err := inter.evalArrayAllowed(arg)
 		if err != nil {
 			return null(), err
 		}

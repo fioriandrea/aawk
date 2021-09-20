@@ -33,21 +33,14 @@ func (ee ErrorExit) Error() string {
 	return "exit"
 }
 
-type RNG struct {
-	*rand.Rand
-	rngseed int64
-}
-
-func (r *RNG) SetSeed(i int64) {
-	r.rngseed = i
-	r.Seed(i)
-}
-
-func NewRNG(seed int64) RNG {
-	return RNG{
-		Rand:    rand.New(rand.NewSource(seed)),
-		rngseed: seed,
-	}
+type RunParams struct {
+	Items            []parser.Item
+	Fs               string
+	Arguments        []string
+	Globalindices    map[string]int
+	Functionindices  map[string]int
+	Builtinpreassing map[int]string
+	Globalpreassign  map[int]string
 }
 
 type interpreter struct {
@@ -66,6 +59,23 @@ type interpreter struct {
 	rng          RNG
 	rangematched map[int]bool
 	fprintfcache map[string]func() (string, []func(awkvalue) interface{})
+}
+
+type RNG struct {
+	*rand.Rand
+	rngseed int64
+}
+
+func (r *RNG) SetSeed(i int64) {
+	r.rngseed = i
+	r.Seed(i)
+}
+
+func NewRNG(seed int64) RNG {
+	return RNG{
+		Rand:    rand.New(rand.NewSource(seed)),
+		rngseed: seed,
+	}
 }
 
 func (inter *interpreter) execute(stat parser.Stat) error {
@@ -255,7 +265,7 @@ func (inter *interpreter) executeDelete(ds *parser.DeleteStat) error {
 		if err != nil {
 			return err
 		}
-		delete(v.array, ind.string(inter.getConvfmt()))
+		delete(v.array, inter.toGoString(ind))
 		return nil
 	case *parser.IdExpr:
 		_, err := inter.getArrayVariable(lhs)
@@ -309,6 +319,13 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 		val, err = inter.evalRegexExpr(v)
 	}
 	return val, err
+}
+
+func (inter *interpreter) evalArrayAllowed(expr parser.Expr) (awkvalue, error) {
+	if id, ok := expr.(*parser.IdExpr); ok {
+		return inter.getVariable(id), nil
+	}
+	return inter.eval(expr)
 }
 
 func (inter *interpreter) evalBinary(b *parser.BinaryExpr) (awkvalue, error) {
@@ -883,111 +900,44 @@ func (inter *interpreter) getRsRune() rune {
 	return runes[0]
 }
 
-func (inter *interpreter) initBuiltInVars(paths []string) {
-	inter.builtins[lexer.Convfmt] = awknormalstring("%.6g")
-	inter.builtins[lexer.Filename] = awknormalstring("")
-	inter.builtins[lexer.Fs] = awknormalstring(" ")
-	inter.builtins[lexer.Nf] = awknormalstring("")
-	inter.builtins[lexer.Nr] = awknormalstring("")
-	inter.builtins[lexer.Ofmt] = awknormalstring("%.6g")
-	inter.builtins[lexer.Ofs] = awknormalstring(" ")
-	inter.builtins[lexer.Ors] = awknormalstring("\n")
-	inter.builtins[lexer.Rs] = awknormalstring("\n")
-	inter.builtins[lexer.Subsep] = awknormalstring("\034")
-
-	argc := len(paths) + 1
-	argv := map[string]awkvalue{}
-	argv["0"] = awknumericstring(os.Args[0])
-	for i := 1; i <= argc-1; i++ {
-		argv[fmt.Sprintf("%d", i)] = awknumericstring(paths[i-1])
-	}
-	inter.builtins[lexer.Argc] = awknumber(float64(argc))
-	inter.builtins[lexer.Argv] = awkarray(argv)
-
-	environ := awkarray(map[string]awkvalue{})
-	for _, envpair := range os.Environ() {
-		splits := strings.Split(envpair, "=")
-		environ.array[splits[0]] = awknumericstring(splits[1])
-	}
-	inter.builtins[lexer.Environ] = environ
-}
-
-func (inter *interpreter) initialize(paths []string, functions []parser.Item, globalindices map[string]int, functionindices map[string]int) error {
-	inter.builtins = make([]awkvalue, len(lexer.Builtinvars))
-	inter.stack = make([]awkvalue, 10000)
-	inter.globals = make([]awkvalue, len(globalindices))
-	inter.initBuiltInVars(paths)
-	inter.outprograms = newOutWriters()
-	inter.outfiles = newOutWriters()
-	inter.inprograms = newInReaders()
-	inter.infiles = newInReaders()
-	inter.rng = NewRNG(0)
-	inter.currentFile = bufio.NewReader(os.Stdin)
-	inter.rangematched = map[int]bool{}
-	inter.fprintfcache = map[string]func() (string, []func(awkvalue) interface{}){}
-
-	inter.ftable = make([]Callable, len(functionindices))
-
-	for name, native := range Builtinfuncs {
-		inter.ftable[functionindices[name]] = native
-	}
-
-	for _, item := range functions {
-		fi := item.(*parser.FunctionDef)
-		inter.ftable[functionindices[fi.Name.Lexeme]] = &UserFunction{
-			Arity: len(fi.Args),
-			Body:  fi.Body,
-		}
-	}
-
-	return nil
-}
-
-func (inter *interpreter) cleanup() {
-	inter.outprograms.closeAll()
-	inter.outfiles.closeAll()
-	inter.inprograms.closeAll()
-	inter.infiles.closeAll()
-}
-
 func (inter *interpreter) runtimeError(tok lexer.Token, msg string) error {
 	return fmt.Errorf("%s: at line %d (%s): %s", os.Args[0], tok.Line, tok.Lexeme, msg)
 }
 
-func filterItems(items []parser.Item, filterOut func(parser.Item) bool) ([]parser.Item, []parser.Item) {
-	newitems := items[:0]
-	res := make([]parser.Item, 0)
-	for _, item := range items {
-		if filterOut(item) {
-			res = append(res, item)
-		} else {
-			newitems = append(newitems, item)
+func Run(params RunParams) error {
+	filterItems := func(items []parser.Item, filterOut func(parser.Item) bool) ([]parser.Item, []parser.Item) {
+		newitems := items[:0]
+		res := make([]parser.Item, 0)
+		for _, item := range items {
+			if filterOut(item) {
+				res = append(res, item)
+			} else {
+				newitems = append(newitems, item)
+			}
 		}
+		return newitems, res
 	}
-	return newitems, res
-}
 
-func specialFilter(item parser.Item, ttype lexer.TokenType) bool {
-	patact, ok := item.(*parser.PatternAction)
-	if !ok {
-		return false
+	specialFilter := func(item parser.Item, ttype lexer.TokenType) bool {
+		patact, ok := item.(*parser.PatternAction)
+		if !ok {
+			return false
+		}
+		pat, ok := patact.Pattern.(*parser.SpecialPattern)
+		if !ok {
+			return false
+		}
+		if pat.Type.Type != ttype {
+			return false
+		}
+		return true
 	}
-	pat, ok := patact.Pattern.(*parser.SpecialPattern)
-	if !ok {
-		return false
-	}
-	if pat.Type.Type != ttype {
-		return false
-	}
-	return true
-}
 
-func Run(items []parser.Item, paths []string, globalindices map[string]int, functionindices map[string]int) error {
 	var inter interpreter
 	var errexit ErrorExit
 	var skipNormals bool
 
-	items, functions := filterItems(items, func(item parser.Item) bool {
+	items, functions := filterItems(params.Items, func(item parser.Item) bool {
 		switch item.(type) {
 		case *parser.FunctionDef:
 			return true
@@ -1016,7 +966,15 @@ func Run(items []parser.Item, paths []string, globalindices map[string]int, func
 		return specialFilter(item, lexer.End)
 	})
 
-	inter.initialize(paths, functions, globalindices, functionindices)
+	inter.initialize(params, functions)
+
+	for i, str := range params.Builtinpreassing {
+		inter.builtins[i] = awknumericstring(str)
+	}
+
+	for i, str := range params.Globalpreassign {
+		inter.globals[i] = awknumericstring(str)
+	}
 
 	for _, beg := range begins {
 		patact := beg.(*parser.PatternAction)
@@ -1031,7 +989,7 @@ func Run(items []parser.Item, paths []string, globalindices map[string]int, func
 	}
 
 	if !skipNormals {
-		err := inter.processNormals(normals, paths)
+		err := inter.processNormals(normals, params.Arguments)
 		if ee, ok := err.(ErrorExit); ok {
 			errexit = ee
 		} else if err != nil {
@@ -1055,7 +1013,72 @@ func Run(items []parser.Item, paths []string, globalindices map[string]int, func
 	return errexit
 }
 
-func (inter *interpreter) processNormals(normals []parser.Item, paths []string) error {
+func (inter *interpreter) initialize(params RunParams, functions []parser.Item) {
+	inter.builtins = make([]awkvalue, len(lexer.Builtinvars))
+	inter.stack = make([]awkvalue, 10000)
+	inter.globals = make([]awkvalue, len(params.Globalindices))
+	inter.initBuiltInVars(params)
+	inter.outprograms = newOutWriters()
+	inter.outfiles = newOutWriters()
+	inter.inprograms = newInReaders()
+	inter.infiles = newInReaders()
+	inter.rng = NewRNG(0)
+	inter.currentFile = bufio.NewReader(os.Stdin)
+	inter.rangematched = map[int]bool{}
+	inter.fprintfcache = map[string]func() (string, []func(awkvalue) interface{}){}
+
+	inter.ftable = make([]Callable, len(params.Functionindices))
+
+	for name, native := range Builtinfuncs {
+		inter.ftable[params.Functionindices[name]] = native
+	}
+
+	for _, item := range functions {
+		fi := item.(*parser.FunctionDef)
+		inter.ftable[params.Functionindices[fi.Name.Lexeme]] = &UserFunction{
+			Arity: len(fi.Args),
+			Body:  fi.Body,
+		}
+	}
+}
+
+func (inter *interpreter) initBuiltInVars(params RunParams) {
+	inter.builtins[lexer.Convfmt] = awknormalstring("%.6g")
+	inter.builtins[lexer.Filename] = awknormalstring("")
+	inter.builtins[lexer.Fs] = awknormalstring(params.Fs)
+	inter.builtins[lexer.Nf] = awknormalstring("")
+	inter.builtins[lexer.Nr] = awknormalstring("")
+	inter.builtins[lexer.Ofmt] = awknormalstring("%.6g")
+	inter.builtins[lexer.Ofs] = awknormalstring(" ")
+	inter.builtins[lexer.Ors] = awknormalstring("\n")
+	inter.builtins[lexer.Rs] = awknormalstring("\n")
+	inter.builtins[lexer.Subsep] = awknormalstring("\034")
+
+	argc := len(params.Arguments) + 1
+	argv := map[string]awkvalue{}
+	argv["0"] = awknumericstring(os.Args[0])
+	for i := 1; i <= argc-1; i++ {
+		argv[fmt.Sprintf("%d", i)] = awknumericstring(params.Arguments[i-1])
+	}
+	inter.builtins[lexer.Argc] = awknumber(float64(argc))
+	inter.builtins[lexer.Argv] = awkarray(argv)
+
+	environ := awkarray(map[string]awkvalue{})
+	for _, envpair := range os.Environ() {
+		splits := strings.Split(envpair, "=")
+		environ.array[splits[0]] = awknumericstring(splits[1])
+	}
+	inter.builtins[lexer.Environ] = environ
+}
+
+func (inter *interpreter) cleanup() {
+	inter.outprograms.closeAll()
+	inter.outfiles.closeAll()
+	inter.inprograms.closeAll()
+	inter.infiles.closeAll()
+}
+
+func (inter *interpreter) processNormals(normals []parser.Item, arguments []string) error {
 	if len(normals) == 0 {
 		return nil
 	}
