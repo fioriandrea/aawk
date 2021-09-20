@@ -62,9 +62,6 @@ outer:
 			}
 			i++
 			fs = args[i]
-			if _, err := regexp.Compile(fs); err != nil {
-				parseCliError("invalid field separator")
-			}
 		case "-f":
 			if i >= len(args) {
 				expectedArgument(args[i])
@@ -83,7 +80,7 @@ outer:
 			i++
 			variables = append(variables, args[i])
 		default:
-			if args[i][0] == '-' && args[i] != "--" {
+			if len(args[i]) > 0 && args[i][0] == '-' && args[i] != "--" {
 				parseCliError(fmt.Sprintf("unexpected option %s", args[i]))
 			}
 			break outer
