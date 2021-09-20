@@ -107,112 +107,11 @@ func (nf NativeFunction) Call(inter *interpreter, called lexer.Token, args []par
 }
 
 var Builtinfuncs = map[string]NativeFunction{
-	"close": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-		file, err := inter.eval(getExprAtOrNil(0, args))
-		if err != nil {
-			return null(), err
-		}
-		str := inter.toGoString(file)
-		opr := inter.outprograms.close(str)
-		oprn := 0
-		if opr != nil {
-			oprn = 1
-		}
-		of := inter.outfiles.close(str)
-		ofn := 0
-		if of != nil {
-			ofn = 1
-		}
-		ipr := inter.inprograms.close(str)
-		iprn := 0
-		if ipr != nil {
-			iprn = 1
-		}
-
-		return awknumber(float64(oprn + ofn + iprn)), nil
-	},
-
-	"sprintf": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-		if len(args) == 0 {
-			args = append(args, nil)
-		}
-		var str strings.Builder
-		err := inter.fprintf(&str, called, args)
-		if err != nil {
-			return null(), err
-		}
-		return awknormalstring(str.String()), nil
-	},
-
-	"sqrt": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-		if len(args) > 1 {
-			return null(), inter.runtimeError(called, "too may arguments")
-		}
-		n, err := inter.eval(getExprAtOrNil(0, args))
-		if err != nil {
-			return null(), err
-		}
-		num := n.float()
-		if num < 0 {
-			return null(), inter.runtimeError(called, "cannot compute sqrt of a negative number")
-		}
-		return awknumber(math.Sqrt(num)), nil
-	},
-
-	"log": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-		if len(args) > 1 {
-			return null(), inter.runtimeError(called, "too may arguments")
-		}
-		n, err := inter.eval(getExprAtOrNil(0, args))
-		if err != nil {
-			return null(), err
-		}
-		num := n.float()
-		if num <= 0 {
-			return null(), inter.runtimeError(called, "cannot compute log of a number <= 0")
-		}
-		return awknumber(math.Log(num)), nil
-	},
-
-	"sin": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-		if len(args) > 1 {
-			return null(), inter.runtimeError(called, "too may arguments")
-		}
-		n, err := inter.eval(getExprAtOrNil(0, args))
-		if err != nil {
-			return null(), err
-		}
-		num := n.float()
-		return awknumber(math.Sin(num)), nil
-	},
-
-	"cos": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-		if len(args) > 1 {
-			return null(), inter.runtimeError(called, "too may arguments")
-		}
-		n, err := inter.eval(getExprAtOrNil(0, args))
-		if err != nil {
-			return null(), err
-		}
-		num := n.float()
-		return awknumber(math.Cos(num)), nil
-	},
-
-	"exp": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-		if len(args) > 1 {
-			return null(), inter.runtimeError(called, "too may arguments")
-		}
-		n, err := inter.eval(getExprAtOrNil(0, args))
-		if err != nil {
-			return null(), err
-		}
-		num := n.float()
-		return awknumber(math.Exp(num)), nil
-	},
+	// Arithmetic functions
 
 	"atan2": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-		if len(args) > 2 {
-			return null(), inter.runtimeError(called, "too may arguments")
+		if len(args) != 2 {
+			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
 		n1, err := inter.eval(getExprAtOrNil(0, args))
 		if err != nil {
@@ -227,9 +126,75 @@ var Builtinfuncs = map[string]NativeFunction{
 		return awknumber(math.Atan2(num1, num2)), nil
 	},
 
+	"cos": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+		if len(args) != 1 {
+			return null(), inter.runtimeError(called, "incorrect number of arguments")
+		}
+		n, err := inter.eval(getExprAtOrNil(0, args))
+		if err != nil {
+			return null(), err
+		}
+		num := n.float()
+		return awknumber(math.Cos(num)), nil
+	},
+
+	"sin": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+		if len(args) != 1 {
+			return null(), inter.runtimeError(called, "incorrect number of arguments")
+		}
+		n, err := inter.eval(getExprAtOrNil(0, args))
+		if err != nil {
+			return null(), err
+		}
+		num := n.float()
+		return awknumber(math.Sin(num)), nil
+	},
+
+	"exp": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+		if len(args) != 1 {
+			return null(), inter.runtimeError(called, "incorrect number of arguments")
+		}
+		n, err := inter.eval(getExprAtOrNil(0, args))
+		if err != nil {
+			return null(), err
+		}
+		num := n.float()
+		return awknumber(math.Exp(num)), nil
+	},
+
+	"log": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+		if len(args) != 1 {
+			return null(), inter.runtimeError(called, "incorrect number of arguments")
+		}
+		n, err := inter.eval(getExprAtOrNil(0, args))
+		if err != nil {
+			return null(), err
+		}
+		num := n.float()
+		if num <= 0 {
+			return null(), inter.runtimeError(called, "cannot compute log of a number <= 0")
+		}
+		return awknumber(math.Log(num)), nil
+	},
+
+	"sqrt": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+		if len(args) != 1 {
+			return null(), inter.runtimeError(called, "incorrect number of arguments")
+		}
+		n, err := inter.eval(getExprAtOrNil(0, args))
+		if err != nil {
+			return null(), err
+		}
+		num := n.float()
+		if num < 0 {
+			return null(), inter.runtimeError(called, "cannot compute sqrt of a negative number")
+		}
+		return awknumber(math.Sqrt(num)), nil
+	},
+
 	"int": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-		if len(args) > 1 {
-			return null(), inter.runtimeError(called, "too may arguments")
+		if len(args) != 1 {
+			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
 		n, err := inter.eval(getExprAtOrNil(0, args))
 		if err != nil {
@@ -264,9 +229,89 @@ var Builtinfuncs = map[string]NativeFunction{
 		return awknumber(float64(ret)), nil
 	},
 
+	// String functions
+
+	"index": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+		if len(args) != 2 {
+			return null(), inter.runtimeError(called, "incorrect number of arguments")
+		}
+		v0, err := inter.eval(args[0])
+		if err != nil {
+			return null(), err
+		}
+		v1, err := inter.eval(args[1])
+		if err != nil {
+			return null(), err
+		}
+		str := inter.toGoString(v0)
+		substr := inter.toGoString(v1)
+		return awknumber(float64(strings.Index(str, substr) + 1)), nil
+	},
+
+	"sprintf": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+		if len(args) == 0 {
+			args = append(args, nil)
+		}
+		var str strings.Builder
+		err := inter.fprintf(&str, called, args)
+		if err != nil {
+			return null(), err
+		}
+		return awknormalstring(str.String()), nil
+	},
+
+	"tolower": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+		if len(args) != 1 {
+			return null(), inter.runtimeError(called, "incorrect number of arguments")
+		}
+		v, err := inter.eval(args[0])
+		if err != nil {
+			return null(), err
+		}
+		return awknormalstring(strings.ToLower(inter.toGoString(v))), nil
+	},
+
+	"toupper": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+		if len(args) != 1 {
+			return null(), inter.runtimeError(called, "incorrect number of arguments")
+		}
+		v, err := inter.eval(args[0])
+		if err != nil {
+			return null(), err
+		}
+		return awknormalstring(strings.ToUpper(inter.toGoString(v))), nil
+	},
+
+	// IO functions
+
+	"close": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+		file, err := inter.eval(getExprAtOrNil(0, args))
+		if err != nil {
+			return null(), err
+		}
+		str := inter.toGoString(file)
+		opr := inter.outprograms.close(str)
+		oprn := 0
+		if opr != nil {
+			oprn = 1
+		}
+		of := inter.outfiles.close(str)
+		ofn := 0
+		if of != nil {
+			ofn = 1
+		}
+		ipr := inter.inprograms.close(str)
+		iprn := 0
+		if ipr != nil {
+			iprn = 1
+		}
+
+		return awknumber(float64(oprn + ofn + iprn)), nil
+	},
+
 	"system": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 		if len(args) != 1 {
-			return null(), inter.runtimeError(called, "invalid number of arguments")
+			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
 		v, err := inter.eval(args[0])
 		if err != nil {
