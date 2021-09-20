@@ -303,6 +303,8 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 		val, err = inter.evalDollar(v)
 	case *parser.GetlineExpr:
 		val, err = inter.evalGetline(v)
+	case *parser.LengthExpr:
+		val, err = inter.evalLength(v)
 	case *parser.CallExpr:
 		val, err = inter.evalCall(v)
 	case *parser.InExpr:
@@ -455,6 +457,20 @@ func (inter *interpreter) evalGetline(gl *parser.GetlineExpr) (awkvalue, error) 
 		inter.setField(0, recstr)
 	}
 	return retval, nil
+}
+
+func (inter *interpreter) evalLength(le *parser.LengthExpr) (awkvalue, error) {
+	var str string
+	if le.Arg == nil {
+		str = inter.toGoString(inter.getField(0))
+	} else {
+		v, err := inter.eval(le.Arg)
+		if err != nil {
+			return null(), err
+		}
+		str = inter.toGoString(v)
+	}
+	return awknumber(float64(len([]rune(str)))), nil
 }
 
 func (inter *interpreter) evalCall(ce *parser.CallExpr) (awkvalue, error) {
@@ -909,7 +925,7 @@ func (inter *interpreter) initialize(paths []string, functions []parser.Item, gl
 
 	inter.ftable = make([]Callable, len(functionindices))
 
-	for name, native := range Builtins {
+	for name, native := range Builtinfuncs {
 		inter.ftable[functionindices[name]] = native
 	}
 

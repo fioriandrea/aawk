@@ -1051,6 +1051,8 @@ func (ps *parser) termExpr() (Expr, error) {
 		id := ps.current
 		ps.advance()
 		sub, err = ps.callExpr(id)
+	case lexer.Length:
+		sub, err = ps.lengthExpr()
 	case lexer.Getline:
 		sub, err = ps.getlineExpr()
 	case lexer.Slash:
@@ -1068,6 +1070,31 @@ func (ps *parser) termExpr() (Expr, error) {
 		sub, err = nil, ps.parseErrorAtCurrent("unexpected token after term")
 	}
 	return sub, err
+}
+
+func (ps *parser) lengthExpr() (Expr, error) {
+	ps.eat(lexer.Length)
+	op := ps.previous
+	if !ps.eat(lexer.LeftParen) {
+		return &LengthExpr{
+			Length: op,
+		}, nil
+	}
+	var expr Expr
+	if !ps.check(lexer.RightParen) {
+		var err error
+		expr, err = ps.expr()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !ps.eat(lexer.RightParen) {
+		return nil, ps.parseErrorAtCurrent("expected closing ')' for 'length'")
+	}
+	return &LengthExpr{
+		Length: op,
+		Arg:    expr,
+	}, nil
 }
 
 func (ps *parser) regexExpr() (Expr, error) {

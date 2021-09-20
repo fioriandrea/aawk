@@ -69,13 +69,13 @@ const (
 	Getline
 	If
 	In
+	Length
 	Next
 	Print
 	Printf
 	Rand
 	Return
 	While
-
 	Identifier
 	IdentifierParen
 
@@ -127,6 +127,29 @@ var Builtinvars = map[string]int{
 	"SUBSEP":   Subsep,
 }
 
+var Builtinfuncs = map[string]bool{
+	"atan2":   true,
+	"cos":     true,
+	"sin":     true,
+	"exp":     true,
+	"log":     true,
+	"sqrt":    true,
+	"int":     true,
+	"rand":    true,
+	"sran":    true,
+	"gsub":    true,
+	"index":   true,
+	"match":   true,
+	"split":   true,
+	"sprintf": true,
+	"sub":     true,
+	"substr":  true,
+	"tolower": true,
+	"toupper": true,
+	"close":   true,
+	"system":  true,
+}
+
 var keywords = map[string]TokenType{
 	"BEGIN":    Begin,
 	"break":    Break,
@@ -141,6 +164,7 @@ var keywords = map[string]TokenType{
 	"getline":  Getline,
 	"if":       If,
 	"in":       In,
+	"length":   Length,
 	"next":     Next,
 	"printf":   Printf,
 	"print":    Print,
@@ -490,6 +514,14 @@ func (l *Lexer) identifier() Token {
 		if l.currentRune == '(' {
 			rettype = IdentifierParen
 			l.advance()
+		} else if _, ok := Builtinfuncs[lexeme.String()]; ok {
+			for unicode.IsSpace(l.currentRune) && l.currentRune != '\n' {
+				l.advance()
+			}
+			if l.currentRune == '(' {
+				rettype = IdentifierParen
+				l.advance()
+			}
 		}
 	}
 

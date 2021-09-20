@@ -178,6 +178,16 @@ func (e *GetlineExpr) Token() lexer.Token {
 	return e.Getline
 }
 
+type LengthExpr struct {
+	Length lexer.Token
+	Arg    Expr
+	Expr
+}
+
+func (e *LengthExpr) Token() lexer.Token {
+	return e.Length
+}
+
 type CallExpr struct {
 	Called *IdExpr
 	Args   []Expr

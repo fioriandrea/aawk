@@ -205,9 +205,7 @@ func (res *resolver) forEachStat(fe *parser.ForEachStat) error {
 }
 
 func (res *resolver) returnStat(rs *parser.ReturnStat) error {
-	var err error
-	err = res.expr(rs.ReturnVal)
-	return err
+	return res.expr(rs.ReturnVal)
 }
 
 func (res *resolver) printStat(ps *parser.PrintStat) error {
@@ -224,9 +222,7 @@ func (res *resolver) printStat(ps *parser.PrintStat) error {
 }
 
 func (res *resolver) exprStat(es *parser.ExprStat) error {
-	var err error
-	err = res.expr(es.Expr)
-	return err
+	return res.expr(es.Expr)
 }
 
 func (res *resolver) exitStat(ex *parser.ExitStat) error {
@@ -275,6 +271,8 @@ func (res *resolver) expr(ex parser.Expr) error {
 		return res.exprList(e)
 	case *parser.NumberExpr:
 		return res.numberExpr(e)
+	case *parser.LengthExpr:
+		return res.lengthExpr(e)
 	}
 	return nil
 }
@@ -473,20 +471,17 @@ func (res *resolver) inExpr(e *parser.InExpr) error {
 }
 
 func (res *resolver) exprList(e parser.ExprList) error {
-	var err error
-	var exprs []parser.Expr
-	err = res.exprs(e)
-	if err != nil {
-		return err
-	}
-	e = parser.ExprList(exprs)
-	return nil
+	return res.exprs(e)
 }
 
 func (res *resolver) numberExpr(e *parser.NumberExpr) error {
 	v, _ := strconv.ParseFloat(e.Num.Lexeme, 64)
 	e.NumVal = v
 	return nil
+}
+
+func (res *resolver) lengthExpr(e *parser.LengthExpr) error {
+	return res.expr(e.Arg)
 }
 
 func (res *resolver) exprs(es []parser.Expr) error {

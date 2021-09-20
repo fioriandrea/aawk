@@ -62,14 +62,14 @@ func main() {
 		args = args[1:]
 	}
 
-	lexer := lexer.NewLexer(progreader)
-	tree, err := parser.GetSyntaxTree(lexer)
+	lex := lexer.NewLexer(progreader)
+	tree, err := parser.GetSyntaxTree(lex)
 	if err != nil {
 		os.Exit(1)
 	}
 
-	builtinFunctions := make([]string, 0, len(interpreter.Builtins))
-	for name := range interpreter.Builtins {
+	builtinFunctions := make([]string, 0, len(lexer.Builtinfuncs))
+	for name := range lexer.Builtinfuncs {
 		builtinFunctions = append(builtinFunctions, name)
 	}
 	globalindices, functionindices, err := resolver.ResolveVariables(tree, builtinFunctions)

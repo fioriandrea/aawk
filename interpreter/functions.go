@@ -103,18 +103,7 @@ func (nf NativeFunction) Call(inter *interpreter, called lexer.Token, args []par
 	return nf(inter, called, args)
 }
 
-var Builtins = map[string]NativeFunction{
-	"length": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-		if len(args) > 1 {
-			return null(), inter.runtimeError(called, "too may arguments")
-		}
-		strv, err := inter.eval(getExprAtOrNil(0, args))
-		if err != nil {
-			return null(), err
-		}
-		return awknumber(float64(len([]rune(inter.toGoString(strv))))), nil
-	},
-
+var Builtinfuncs = map[string]NativeFunction{
 	"close": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 		file, err := inter.eval(getExprAtOrNil(0, args))
 		if err != nil {
