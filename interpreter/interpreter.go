@@ -778,18 +778,15 @@ func (inter *interpreter) evalIndexing(i *parser.IndexingExpr) (awkvalue, error)
 }
 
 func (inter *interpreter) evalIndex(ind []parser.Expr) (awkvalue, error) {
-	sep := ""
-	var buff strings.Builder
-	format := inter.getConvfmt()
+	indices := make([]string, 0, 5)
 	for _, expr := range ind {
 		res, err := inter.eval(expr)
 		if err != nil {
 			return awknormalstring(""), err
 		}
-		fmt.Fprintf(&buff, "%s%s", sep, res.string(format))
-		sep = inter.builtins[lexer.Subsep].string(format)
+		indices = append(indices, res.string(inter.getConvfmt()))
 	}
-	return awknormalstring(buff.String()), nil
+	return awknormalstring(strings.Join(indices, inter.builtins[lexer.Subsep].string(inter.getConvfmt()))), nil
 }
 
 func (inter *interpreter) processInputRecord(text string) {
