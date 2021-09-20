@@ -29,6 +29,18 @@ type UserFunction struct {
 	Body  parser.BlockStat
 }
 
+func (inter *interpreter) giveStackFrame(size int) ([]awkvalue, int) {
+	if inter.stackcount+size > cap(inter.stack) {
+		return make([]awkvalue, size), 0
+	}
+	inter.stackcount += size
+	return inter.stack[inter.stackcount-size : inter.stackcount], size
+}
+
+func (inter *interpreter) releaseStackFrame(size int) {
+	inter.stackcount -= size
+}
+
 func (f *UserFunction) Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 	sublocals, size := inter.giveStackFrame(f.Arity)
 
@@ -100,7 +112,7 @@ var Builtins = map[string]NativeFunction{
 		if err != nil {
 			return null(), err
 		}
-		return awknumber(float64(len([]rune(strv.string(inter.getConvfmt()))))), nil
+		return awknumber(float64(len([]rune(inter.toGoString(strv))))), nil
 	},
 
 	"close": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
@@ -108,7 +120,7 @@ var Builtins = map[string]NativeFunction{
 		if err != nil {
 			return null(), err
 		}
-		str := file.string(inter.getConvfmt())
+		str := inter.toGoString(file)
 		opr := inter.outprograms.close(str)
 		oprn := 0
 		if opr != nil {

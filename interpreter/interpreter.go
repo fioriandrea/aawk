@@ -35,18 +35,6 @@ func (ee ErrorExit) Error() string {
 	return "exit"
 }
 
-type environment struct {
-	locals  []awkvalue
-	calling *environment
-}
-
-func newEnvironment(calling *environment, locals []awkvalue) *environment {
-	return &environment{
-		locals:  locals,
-		calling: calling,
-	}
-}
-
 type RNG struct {
 	*rand.Rand
 	rngseed int64
@@ -78,7 +66,6 @@ type interpreter struct {
 	inprograms   inreaders
 	infiles      inreaders
 	rng          RNG
-	inprint      bool
 	rangematched map[int]bool
 	fprintfcache map[string]func() (string, []func(awkvalue) interface{})
 }
@@ -129,8 +116,6 @@ func (inter *interpreter) executeExpr(es *parser.ExprStat) error {
 }
 
 func (inter *interpreter) executePrint(ps *parser.PrintStat) error {
-	inter.inprint = true
-	defer func() { inter.inprint = false }()
 	var w io.Writer
 	w = os.Stdout
 	if ps.File != nil {
@@ -159,7 +144,7 @@ func (inter *interpreter) executePrint(ps *parser.PrintStat) error {
 
 func (inter *interpreter) executeSimplePrint(w io.Writer, ps *parser.PrintStat) error {
 	if ps.Exprs == nil {
-		fmt.Fprintf(w, "%s", inter.getField(0).string(inter.getConvfmt()))
+		fmt.Fprint(w, inter.toGoString(inter.getField(0)))
 	} else {
 		sep := ""
 		for _, expr := range ps.Exprs {
@@ -170,11 +155,12 @@ func (inter *interpreter) executeSimplePrint(w io.Writer, ps *parser.PrintStat) 
 			if v.typ == Array {
 				return inter.runtimeError(ps.Token(), "cannot print array")
 			}
-			fmt.Fprintf(w, "%s%s", sep, v.string(inter.getConvfmt()))
+			fmt.Fprint(w, sep)
+			fmt.Fprint(w, inter.toGoString(v))
 			sep = inter.builtins[lexer.Ofs].string(inter.getConvfmt())
 		}
 	}
-	fmt.Fprintf(w, "%s", inter.builtins[lexer.Ors].string(inter.getConvfmt()))
+	fmt.Fprint(w, inter.toGoString(inter.builtins[lexer.Ors]))
 	return nil
 }
 
@@ -367,7 +353,7 @@ func (inter *interpreter) evalBinary(b *parser.BinaryExpr) (awkvalue, error) {
 	case lexer.Caret:
 		return awknumber(math.Pow(left.float(), right.float())), nil
 	case lexer.Concat:
-		return awknormalstring(left.string(inter.getConvfmt()) + right.string(inter.getConvfmt())), nil
+		return awknormalstring(inter.toGoString(left) + inter.toGoString(right)), nil
 	case lexer.Equal:
 		c := inter.compareValues(left, right)
 		if c == 0 {
@@ -496,7 +482,7 @@ func (inter *interpreter) evalIn(ine *parser.InExpr) (awkvalue, error) {
 	if v.typ != Array {
 		return awknumber(0), nil
 	}
-	str := elem.string(inter.getConvfmt())
+	str := inter.toGoString(elem)
 	_, ok := v.array[str]
 	if ok {
 		return awknumber(1), nil
@@ -544,7 +530,7 @@ func (inter *interpreter) evalMatchExpr(me *parser.MatchExpr) (awkvalue, error) 
 	if me.Op.Type == lexer.NotMatch {
 		negate = true
 	}
-	res := right.MatchString(left.string(inter.getConvfmt()))
+	res := right.MatchString(inter.toGoString(left))
 	if negate {
 		res = !res
 	}
@@ -624,9 +610,8 @@ func (inter *interpreter) compareValues(left, right awkvalue) float64 {
 	numeric and the other has a string value that is a numeric string, or
 	if one is numeric and the other has the uninitialized value. */
 	if nosl || nosr || (left.typ == Null && right.typ == Null) || (nusl && nusr) {
-		format := inter.getConvfmt()
-		strl := left.string(format)
-		strr := right.string(format)
+		strl := inter.toGoString(left)
+		strr := inter.toGoString(right)
 		if strl == strr {
 			return 0
 		} else if strl < strr {
@@ -786,7 +771,7 @@ func (inter *interpreter) evalIndex(ind []parser.Expr) (awkvalue, error) {
 		}
 		indices = append(indices, res.string(inter.getConvfmt()))
 	}
-	return awknormalstring(strings.Join(indices, inter.builtins[lexer.Subsep].string(inter.getConvfmt()))), nil
+	return awknormalstring(strings.Join(indices, inter.toGoString(inter.builtins[lexer.Subsep]))), nil
 }
 
 func (inter *interpreter) processInputRecord(text string) {
@@ -801,14 +786,13 @@ func (inter *interpreter) getField(i int) awkvalue {
 }
 
 func (inter *interpreter) setField(i int, v awkvalue) {
-	format := inter.getConvfmt()
 	if i >= 1 && i < len(inter.fields) {
-		inter.fields[i] = awknumericstring(v.string(format))
-		ofs := inter.builtins[lexer.Ofs].string(format)
+		inter.fields[i] = awknumericstring(inter.toGoString(v))
+		ofs := inter.toGoString(inter.builtins[lexer.Ofs])
 		sep := ""
 		var res strings.Builder
 		for _, field := range inter.fields[1:] {
-			fmt.Fprintf(&res, "%s%s", sep, field.string(format))
+			fmt.Fprintf(&res, "%s%s", sep, inter.toGoString(field))
 			sep = ofs
 		}
 		inter.fields[0] = awknumericstring(res.String())
@@ -818,10 +802,10 @@ func (inter *interpreter) setField(i int, v awkvalue) {
 		}
 		inter.setField(i, v)
 	} else if i == 0 {
-		str := v.string(format)
+		str := inter.toGoString(v)
 		inter.fields[0] = awknumericstring(str)
 		inter.fields = inter.fields[0:1]
-		restr := inter.builtins[lexer.Fs].string(format)
+		restr := inter.toGoString(inter.builtins[lexer.Fs])
 		if len(restr) == 1 {
 			if restr == " " {
 				restr = "\\s+"
@@ -836,6 +820,10 @@ func (inter *interpreter) setField(i int, v awkvalue) {
 		}
 		inter.builtins[lexer.Nf] = awknumber(float64(len(inter.fields) - 1))
 	}
+}
+
+func (inter *interpreter) toGoString(v awkvalue) string {
+	return v.string(inter.getConvfmt())
 }
 
 func (inter *interpreter) getVariable(id *parser.IdExpr) awkvalue {
@@ -860,6 +848,24 @@ func (inter *interpreter) setVariable(id *parser.IdExpr, v awkvalue) error {
 		inter.builtins[id.BuiltinIndex] = v
 	}
 	return nil
+}
+
+func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
+	str := v.string(inter.getConvfmt())
+	_, err := regexp.Compile(str)
+	if err != nil {
+		return inter.runtimeError(token, "invalid regular expression")
+	}
+	inter.builtins[lexer.Fs] = awknormalstring(str)
+	return nil
+}
+
+func (inter *interpreter) getOfmt() string {
+	return inter.builtins[lexer.Ofmt].str
+}
+
+func (inter *interpreter) getConvfmt() string {
+	return inter.builtins[lexer.Convfmt].str
 }
 
 func (inter *interpreter) initBuiltInVars(paths []string) {
@@ -1071,18 +1077,6 @@ func (inter *interpreter) processNormals(normals []parser.Item, paths []string) 
 	return nil
 }
 
-func (inter *interpreter) giveStackFrame(size int) ([]awkvalue, int) {
-	if inter.stackcount+size > cap(inter.stack) {
-		return make([]awkvalue, size), 0
-	}
-	inter.stackcount += size
-	return inter.stack[inter.stackcount-size : inter.stackcount], size
-}
-
-func (inter *interpreter) releaseStackFrame(size int) {
-	inter.stackcount -= size
-}
-
 func (inter *interpreter) getRsRune() rune {
 	rs := inter.builtins[lexer.Rs].string(inter.getConvfmt())
 	if rs == "" {
@@ -1144,22 +1138,4 @@ outer:
 			}
 		}
 	}
-}
-
-func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
-	str := v.string(inter.getConvfmt())
-	_, err := regexp.Compile(str)
-	if err != nil {
-		return inter.runtimeError(token, "invalid regular expression")
-	}
-	inter.builtins[lexer.Fs] = awknormalstring(str)
-	return nil
-}
-
-func (inter *interpreter) getOfmt() string {
-	return inter.builtins[lexer.Ofmt].str
-}
-
-func (inter *interpreter) getConvfmt() string {
-	return inter.builtins[lexer.Convfmt].str
 }
