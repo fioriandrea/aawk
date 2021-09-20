@@ -326,11 +326,6 @@ func (inter *interpreter) evalBinary(b *parser.BinaryExpr) (awkvalue, error) {
 	if err != nil {
 		return null(), err
 	}
-	arrl := left.typ == Array
-	arrr := right.typ == Array
-	if arrl || arrr {
-		return null(), inter.runtimeError(b.Token(), "cannot use array in scalar context")
-	}
 	switch b.Op.Type {
 	case lexer.Plus:
 		return awknumber(left.float() + right.float()), nil
@@ -638,9 +633,6 @@ func (inter *interpreter) evalUnary(u *parser.UnaryExpr) (awkvalue, error) {
 	if err != nil {
 		return null(), err
 	}
-	if right.typ == Array {
-		return null(), inter.runtimeError(u.Right.Token(), "cannot use array in scalar context")
-	}
 	res := awknumber(0)
 	switch u.Op.Type {
 	case lexer.Minus:
@@ -746,7 +738,11 @@ func (inter *interpreter) evalTernary(te *parser.TernaryExpr) (awkvalue, error) 
 }
 
 func (inter *interpreter) evalId(i *parser.IdExpr) (awkvalue, error) {
-	return inter.getVariable(i), nil
+	v := inter.getVariable(i)
+	if v.typ == Array {
+		return null(), inter.runtimeError(i.Token(), "cannot use array in scalar context")
+	}
+	return v, nil
 }
 
 func (inter *interpreter) evalIndexing(i *parser.IndexingExpr) (awkvalue, error) {
@@ -876,6 +872,15 @@ func (inter *interpreter) getOfmt() string {
 
 func (inter *interpreter) getConvfmt() string {
 	return inter.builtins[lexer.Convfmt].str
+}
+
+func (inter *interpreter) getRsRune() rune {
+	rs := inter.builtins[lexer.Rs].string(inter.getConvfmt())
+	if rs == "" {
+		rs = "\n"
+	}
+	runes := []rune(rs)
+	return runes[0]
 }
 
 func (inter *interpreter) initBuiltInVars(paths []string) {
@@ -1085,15 +1090,6 @@ func (inter *interpreter) processNormals(normals []parser.Item, paths []string) 
 		}
 	}
 	return nil
-}
-
-func (inter *interpreter) getRsRune() rune {
-	rs := inter.builtins[lexer.Rs].string(inter.getConvfmt())
-	if rs == "" {
-		rs = "\n"
-	}
-	runes := []rune(rs)
-	return runes[0]
 }
 
 func (inter *interpreter) processFile(normals []parser.Item, f *os.File) error {
