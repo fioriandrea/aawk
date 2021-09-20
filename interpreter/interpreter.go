@@ -247,13 +247,9 @@ func (inter *interpreter) executeExit(es *parser.ExitStat) error {
 func (inter *interpreter) executeDelete(ds *parser.DeleteStat) error {
 	switch lhs := ds.Lhs.(type) {
 	case *parser.IndexingExpr:
-		v := inter.getVariable(lhs.Id)
-		if v.typ == Null {
-			inter.setVariable(lhs.Id, awkarray(map[string]awkvalue{}))
-			v = inter.getVariable(lhs.Id)
-		}
-		if v.typ != Array {
-			return inter.runtimeError(lhs.Token(), "cannot index a scalar")
+		v, err := inter.getArrayVariable(lhs.Id)
+		if err != nil {
+			return err
 		}
 		ind, err := inter.evalIndex(lhs.Index)
 		if err != nil {
@@ -262,13 +258,11 @@ func (inter *interpreter) executeDelete(ds *parser.DeleteStat) error {
 		delete(v.array, ind.string(inter.getConvfmt()))
 		return nil
 	case *parser.IdExpr:
-		v := inter.getVariable(lhs)
-		if v.typ != Array && v.typ != Null {
-			return inter.runtimeError(lhs.Token(), "cannot index a scalar")
+		_, err := inter.getArrayVariable(lhs)
+		if err != nil {
+			return err
 		}
-		if v.typ == Array {
-			inter.setVariable(lhs, awkarray(map[string]awkvalue{}))
-		}
+		inter.setVariable(lhs, awkarray(map[string]awkvalue{}))
 	}
 	return nil
 }
@@ -746,26 +740,16 @@ func (inter *interpreter) evalId(i *parser.IdExpr) (awkvalue, error) {
 }
 
 func (inter *interpreter) evalIndexing(i *parser.IndexingExpr) (awkvalue, error) {
-	v := inter.getVariable(i.Id)
-	switch v.typ {
-	case Array:
-		index, err := inter.evalIndex(i.Index)
-		if err != nil {
-			return null(), err
-		}
-		res := v.array[index.str]
-		v.array[index.str] = res
-		return res, nil
-	default:
-		if v.typ != Null {
-			return null(), inter.runtimeError(i.Token(), "cannot index a scalar value")
-		}
-		err := inter.setVariable(i.Id, awkarray(map[string]awkvalue{}))
-		if err != nil {
-			return null(), err
-		}
-		return inter.evalIndexing(i)
+	v, err := inter.getArrayVariable(i.Id)
+	if err != nil {
+		return null(), err
 	}
+	index, err := inter.evalIndex(i.Index)
+	if err != nil {
+		return null(), err
+	}
+	res := v.array[index.str]
+	return res, nil
 }
 
 func (inter *interpreter) evalIndex(ind []parser.Expr) (awkvalue, error) {
@@ -842,6 +826,22 @@ func (inter *interpreter) getVariable(id *parser.IdExpr) awkvalue {
 	}
 }
 
+func (inter *interpreter) getArrayVariable(id *parser.IdExpr) (awkvalue, error) {
+	v := inter.getVariable(id)
+	switch v.typ {
+	case Array:
+		return v, nil
+	case Null:
+		err := inter.setVariable(id, awkarray(map[string]awkvalue{}))
+		if err != nil {
+			return null(), err
+		}
+		return inter.getArrayVariable(id)
+	default:
+		return null(), inter.runtimeError(id.Token(), "cannot use scalar in array context")
+	}
+}
+
 func (inter *interpreter) setVariable(id *parser.IdExpr, v awkvalue) error {
 	if id.Index >= 0 {
 		inter.globals[id.Index] = v
@@ -875,7 +875,7 @@ func (inter *interpreter) getConvfmt() string {
 }
 
 func (inter *interpreter) getRsRune() rune {
-	rs := inter.builtins[lexer.Rs].string(inter.getConvfmt())
+	rs := inter.toGoString(inter.builtins[lexer.Rs])
 	if rs == "" {
 		rs = "\n"
 	}

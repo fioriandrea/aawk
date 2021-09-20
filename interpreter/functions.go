@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -239,6 +240,53 @@ var Builtinfuncs = map[string]NativeFunction{
 		str := inter.toGoString(v0)
 		substr := inter.toGoString(v1)
 		return awknumber(float64(strings.Index(str, substr) + 1)), nil
+	},
+
+	"split": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+		if len(args) < 3 {
+			args = append(args, nil)
+		}
+		if len(args) != 3 {
+			return null(), inter.runtimeError(called, "incorrect number of arguments")
+		}
+
+		vs, err := inter.eval(args[0])
+		if err != nil {
+			return null(), err
+		}
+
+		s := inter.toGoString(vs)
+
+		id, isid := args[1].(*parser.IdExpr)
+		if !isid {
+			return null(), inter.runtimeError(args[1].Token(), "expected array")
+		}
+
+		_, err = inter.getArrayVariable(id)
+		if err != nil {
+			return null(), err
+		}
+
+		var re *regexp.Regexp
+		if args[2] == nil {
+			re = regexp.MustCompile(inter.builtins[lexer.Fs].str)
+		} else {
+			var err error
+			re, err = inter.evalRegex(args[2])
+			if err != nil {
+				return null(), err
+			}
+		}
+
+		newval := awkarray(map[string]awkvalue{})
+
+		for i, split := range re.Split(s, -1) {
+			newval.array[fmt.Sprintf("%d", i+1)] = awknumericstring(split)
+		}
+
+		inter.setVariable(id, newval)
+
+		return null(), nil
 	},
 
 	"sprintf": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {

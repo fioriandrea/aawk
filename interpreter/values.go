@@ -3,6 +3,8 @@ package interpreter
 import (
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -65,10 +67,14 @@ func awknormalstring(s string) awkvalue {
 }
 
 func awknumericstring(s string) awkvalue {
+	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return awknormalstring(s)
+	}
 	return awkvalue{
 		typ: Numericstring,
 		str: s,
-		n:   stringToNumber(s),
+		n:   f,
 	}
 }
 
