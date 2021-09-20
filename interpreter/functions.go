@@ -16,13 +16,6 @@ import (
 	"github.com/fioriandrea/aawk/parser"
 )
 
-func getExprAtOrNil(i int, exprs []parser.Expr) parser.Expr {
-	if i >= len(exprs) {
-		return nil
-	}
-	return exprs[i]
-}
-
 type Callable interface {
 	Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error)
 }
@@ -113,11 +106,11 @@ var Builtinfuncs = map[string]NativeFunction{
 		if len(args) != 2 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
-		n1, err := inter.eval(getExprAtOrNil(0, args))
+		n1, err := inter.eval(args[0])
 		if err != nil {
 			return null(), err
 		}
-		n2, err := inter.eval(getExprAtOrNil(1, args))
+		n2, err := inter.eval(args[1])
 		if err != nil {
 			return null(), err
 		}
@@ -130,7 +123,7 @@ var Builtinfuncs = map[string]NativeFunction{
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
-		n, err := inter.eval(getExprAtOrNil(0, args))
+		n, err := inter.eval(args[0])
 		if err != nil {
 			return null(), err
 		}
@@ -142,7 +135,7 @@ var Builtinfuncs = map[string]NativeFunction{
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
-		n, err := inter.eval(getExprAtOrNil(0, args))
+		n, err := inter.eval(args[0])
 		if err != nil {
 			return null(), err
 		}
@@ -154,7 +147,7 @@ var Builtinfuncs = map[string]NativeFunction{
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
-		n, err := inter.eval(getExprAtOrNil(0, args))
+		n, err := inter.eval(args[0])
 		if err != nil {
 			return null(), err
 		}
@@ -166,7 +159,7 @@ var Builtinfuncs = map[string]NativeFunction{
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
-		n, err := inter.eval(getExprAtOrNil(0, args))
+		n, err := inter.eval(args[0])
 		if err != nil {
 			return null(), err
 		}
@@ -181,7 +174,7 @@ var Builtinfuncs = map[string]NativeFunction{
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
-		n, err := inter.eval(getExprAtOrNil(0, args))
+		n, err := inter.eval(args[0])
 		if err != nil {
 			return null(), err
 		}
@@ -196,7 +189,7 @@ var Builtinfuncs = map[string]NativeFunction{
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
-		n, err := inter.eval(getExprAtOrNil(0, args))
+		n, err := inter.eval(args[0])
 		if err != nil {
 			return null(), err
 		}
@@ -260,6 +253,46 @@ var Builtinfuncs = map[string]NativeFunction{
 		return awknormalstring(str.String()), nil
 	},
 
+	"substr": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+		if len(args) == 2 {
+			args = append(args, nil)
+		}
+		if len(args) != 3 {
+			return null(), inter.runtimeError(called, "incorrect number of arguments")
+		}
+		vs, err := inter.eval(args[0])
+		if err != nil {
+			return null(), err
+		}
+		s := []rune(inter.toGoString(vs))
+		vm, err := inter.eval(args[1])
+		if err != nil {
+			return null(), err
+		}
+		m := int(vm.float()) - 1
+		if m < 0 {
+			m = 0
+		} else if m > len(s) {
+			m = len(s)
+		}
+		var n int
+		if args[2] == nil {
+			n = len(s)
+		} else {
+			vn, err := inter.eval(args[2])
+			if err != nil {
+				return null(), err
+			}
+			n = int(vn.float())
+		}
+		if n < 0 {
+			n = 0
+		} else if n+m > len(s) {
+			n = len(s) - m
+		}
+		return awknormalstring(string(s[m : m+n])), nil
+	},
+
 	"tolower": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
@@ -285,7 +318,10 @@ var Builtinfuncs = map[string]NativeFunction{
 	// IO functions
 
 	"close": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-		file, err := inter.eval(getExprAtOrNil(0, args))
+		if len(args) != 1 {
+			return null(), inter.runtimeError(called, "incorrect number of arguments")
+		}
+		file, err := inter.eval(args[0])
 		if err != nil {
 			return null(), err
 		}
