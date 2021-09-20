@@ -24,13 +24,16 @@ type Callable interface {
 	Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error)
 }
 
-type AwkFunction parser.FunctionDef
+type UserFunction struct {
+	Arity int
+	Body  parser.BlockStat
+}
 
-func (af AwkFunction) Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-	subenv := newEnvironment(inter.env, make([]awkvalue, len(af.Args)))
+func (f *UserFunction) Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	sublocals, size := inter.giveStackFrame(f.Arity)
 
 	linkarrays := map[int]*parser.IdExpr{}
-	for i := range af.Args {
+	for i := 0; i < f.Arity; i++ {
 		var arg parser.Expr
 		if len(args) > 0 {
 			arg = args[0]
@@ -40,9 +43,9 @@ func (af AwkFunction) Call(inter *interpreter, called lexer.Token, args []parser
 		if err != nil {
 			return null(), err
 		}
-		subenv.locals[i] = v
+		sublocals[i] = v
 
-		// undefined values could be used as an array
+		// undefined values could be used as arrays
 		if idexpr, ok := arg.(*parser.IdExpr); ok && v.typ == Null {
 			linkarrays[i] = idexpr
 		}
@@ -54,10 +57,24 @@ func (af AwkFunction) Call(inter *interpreter, called lexer.Token, args []parser
 			return null(), err
 		}
 	}
-	inter.env = subenv
-	defer func() { inter.env = subenv.calling }()
 
-	err := inter.execute(af.Body)
+	prevlocals := inter.locals
+	inter.locals = sublocals
+
+	defer func() {
+		// link back arrays
+		inter.locals = prevlocals
+		inter.releaseStackFrame(size)
+
+		for local, calling := range linkarrays {
+			v := sublocals[local]
+			if v.typ == Array {
+				inter.setVariable(calling, v)
+			}
+		}
+	}()
+
+	err := inter.execute(f.Body)
 	var retval awkvalue
 	if errRet, ok := err.(errorReturn); ok {
 		retval = errRet.val
@@ -65,14 +82,6 @@ func (af AwkFunction) Call(inter *interpreter, called lexer.Token, args []parser
 		return null(), err
 	}
 
-	// link back arrays
-	inter.env = subenv.calling
-	for local, calling := range linkarrays {
-		v := subenv.locals[local]
-		if v.typ == Array {
-			inter.setVariable(calling, v)
-		}
-	}
 	return retval, nil
 }
 

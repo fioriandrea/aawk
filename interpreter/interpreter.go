@@ -65,11 +65,13 @@ func NewRNG(seed int64) RNG {
 }
 
 type interpreter struct {
-	env          *environment
 	ftable       []Callable
 	builtins     []awkvalue
 	fields       []awkvalue
 	globals      []awkvalue
+	stack        []awkvalue
+	stackcount   int
+	locals       []awkvalue
 	outprograms  outwriters
 	outfiles     outwriters
 	currentFile  io.RuneReader
@@ -843,7 +845,7 @@ func (inter *interpreter) getVariable(id *parser.IdExpr) awkvalue {
 	if id.Index >= 0 {
 		return inter.globals[id.Index]
 	} else if id.Index < 0 && id.LocalIndex >= 0 {
-		return inter.env.locals[id.LocalIndex]
+		return inter.locals[id.LocalIndex]
 	} else {
 		return inter.builtins[id.BuiltinIndex]
 	}
@@ -853,7 +855,7 @@ func (inter *interpreter) setVariable(id *parser.IdExpr, v awkvalue) error {
 	if id.Index >= 0 {
 		inter.globals[id.Index] = v
 	} else if id.Index < 0 && id.LocalIndex >= 0 {
-		inter.env.locals[id.LocalIndex] = v
+		inter.locals[id.LocalIndex] = v
 	} else {
 		if id.BuiltinIndex == lexer.Fs {
 			return inter.setFs(id.Id, v)
@@ -894,7 +896,7 @@ func (inter *interpreter) initBuiltInVars(paths []string) {
 
 func (inter *interpreter) initialize(paths []string, functions []parser.Item, globalindices map[string]int, functionindices map[string]int) error {
 	inter.builtins = make([]awkvalue, len(lexer.Builtinvars))
-	inter.env = nil
+	inter.stack = make([]awkvalue, 10000)
 	inter.globals = make([]awkvalue, len(globalindices))
 	inter.initBuiltInVars(paths)
 	inter.outprograms = newOutWriters()
@@ -914,7 +916,10 @@ func (inter *interpreter) initialize(paths []string, functions []parser.Item, gl
 
 	for _, item := range functions {
 		fi := item.(*parser.FunctionDef)
-		inter.ftable[functionindices[fi.Name.Lexeme]] = AwkFunction(*fi) // TODO
+		inter.ftable[functionindices[fi.Name.Lexeme]] = &UserFunction{
+			Arity: len(fi.Args),
+			Body:  fi.Body,
+		}
 	}
 
 	return nil
@@ -1067,6 +1072,18 @@ func (inter *interpreter) processNormals(normals []parser.Item, paths []string) 
 		}
 	}
 	return nil
+}
+
+func (inter *interpreter) giveStackFrame(size int) ([]awkvalue, int) {
+	if inter.stackcount+size > cap(inter.stack) {
+		return make([]awkvalue, size), 0
+	}
+	inter.stackcount += size
+	return inter.stack[inter.stackcount-size : inter.stackcount], size
+}
+
+func (inter *interpreter) releaseStackFrame(size int) {
+	inter.stackcount -= size
 }
 
 func (inter *interpreter) getRsRune() rune {
