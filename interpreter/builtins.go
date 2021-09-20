@@ -29,7 +29,7 @@ type AwkFunction parser.FunctionDef
 func (af AwkFunction) Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 	subenv := newEnvironment(inter.env, make([]awkvalue, len(af.Args)))
 
-	linkarrays := map[int]parser.IdExpr{}
+	linkarrays := map[int]*parser.IdExpr{}
 	for i := range af.Args {
 		var arg parser.Expr
 		if len(args) > 0 {
@@ -43,7 +43,7 @@ func (af AwkFunction) Call(inter *interpreter, called lexer.Token, args []parser
 		subenv.locals[i] = v
 
 		// undefined values could be used as an array
-		if idexpr, ok := arg.(parser.IdExpr); ok && v.typ == Null {
+		if idexpr, ok := arg.(*parser.IdExpr); ok && v.typ == Null {
 			linkarrays[i] = idexpr
 		}
 	}
@@ -91,7 +91,7 @@ var Builtins = map[string]NativeFunction{
 		if err != nil {
 			return null(), err
 		}
-		return awknumber(float64(len([]rune(inter.toGoString(strv))))), nil
+		return awknumber(float64(len([]rune(strv.string(inter.getConvfmt()))))), nil
 	},
 
 	"close": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
@@ -99,7 +99,7 @@ var Builtins = map[string]NativeFunction{
 		if err != nil {
 			return null(), err
 		}
-		str := inter.toGoString(file)
+		str := file.string(inter.getConvfmt())
 		opr := inter.outprograms.close(str)
 		oprn := 0
 		if opr != nil {
@@ -139,7 +139,7 @@ var Builtins = map[string]NativeFunction{
 		if err != nil {
 			return null(), err
 		}
-		num := inter.toGoFloat(n)
+		num := n.float()
 		if num < 0 {
 			return null(), inter.runtimeError(called, "cannot compute sqrt of a negative number")
 		}
@@ -154,7 +154,7 @@ var Builtins = map[string]NativeFunction{
 		if err != nil {
 			return null(), err
 		}
-		num := inter.toGoFloat(n)
+		num := n.float()
 		if num <= 0 {
 			return null(), inter.runtimeError(called, "cannot compute log of a number <= 0")
 		}
@@ -169,7 +169,7 @@ var Builtins = map[string]NativeFunction{
 		if err != nil {
 			return null(), err
 		}
-		num := inter.toGoFloat(n)
+		num := n.float()
 		return awknumber(math.Sin(num)), nil
 	},
 
@@ -181,7 +181,7 @@ var Builtins = map[string]NativeFunction{
 		if err != nil {
 			return null(), err
 		}
-		num := inter.toGoFloat(n)
+		num := n.float()
 		return awknumber(math.Cos(num)), nil
 	},
 
@@ -193,7 +193,7 @@ var Builtins = map[string]NativeFunction{
 		if err != nil {
 			return null(), err
 		}
-		num := inter.toGoFloat(n)
+		num := n.float()
 		return awknumber(math.Exp(num)), nil
 	},
 
@@ -209,8 +209,8 @@ var Builtins = map[string]NativeFunction{
 		if err != nil {
 			return null(), err
 		}
-		num1 := inter.toGoFloat(n1)
-		num2 := inter.toGoFloat(n2)
+		num1 := n1.float()
+		num2 := n2.float()
 		return awknumber(math.Atan2(num1, num2)), nil
 	},
 
@@ -222,7 +222,7 @@ var Builtins = map[string]NativeFunction{
 		if err != nil {
 			return null(), err
 		}
-		num := inter.toGoFloat(n)
+		num := n.float()
 		return awknumber(float64(int(num))), nil
 	},
 
@@ -246,7 +246,7 @@ var Builtins = map[string]NativeFunction{
 			if err != nil {
 				return null(), err
 			}
-			inter.rng.SetSeed(int64(inter.toGoFloat(seed)))
+			inter.rng.SetSeed(int64(seed.float()))
 		}
 		return awknumber(float64(ret)), nil
 	},
@@ -259,20 +259,21 @@ func (inter *interpreter) parseFmtTypes(print lexer.Token, s string) (format str
 		return format, types, nil
 	}
 
+	ofmt := inter.getOfmt()
 	tostr := func(v awkvalue) interface{} {
-		return inter.toGoString(v)
+		return v.string(ofmt)
 	}
 	tofloat := func(v awkvalue) interface{} {
-		return inter.toGoFloat(v)
+		return v.float()
 	}
 	toint := func(v awkvalue) interface{} {
-		return int(inter.toGoFloat(v))
+		return int(v.float())
 	}
 	touint := func(v awkvalue) interface{} {
-		return uint(inter.toGoFloat(v))
+		return uint(v.float())
 	}
 	tochar := func(v awkvalue) interface{} {
-		return []rune(inter.toGoString(v))[0]
+		return []rune(v.string(ofmt))[0]
 	}
 
 	out := []byte(s)
@@ -327,7 +328,7 @@ func (inter *interpreter) fprintf(w io.Writer, print lexer.Token, exprs []parser
 	if err != nil {
 		return err
 	}
-	formatstr, convs, err := inter.parseFmtTypes(print, inter.toGoString(format))
+	formatstr, convs, err := inter.parseFmtTypes(print, format.string(inter.getConvfmt()))
 	if err != nil {
 		return nil
 	}

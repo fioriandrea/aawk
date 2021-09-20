@@ -37,7 +37,7 @@ func main() {
 	}
 	flag.Parse()
 
-	if isFlagPassed("cpuprofile") {
+	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
 		if err != nil {
 			log.Fatal("could not create CPU profile: ", err)
@@ -68,21 +68,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	builtinFunctions := make([]string, 0, len(interpreter.Builtins))
+	for name := range interpreter.Builtins {
+		builtinFunctions = append(builtinFunctions, name)
+	}
+	globalindices, functionindices, err := resolver.ResolveVariables(tree, builtinFunctions)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
 	/*b, err := json.MarshalIndent(tree, "", "\t")
 	if err != nil {
 		fmt.Println("error:", err)
 	}
 	fmt.Println(string(b))*/
-
-	builtinFunctions := make([]string, 0, len(interpreter.Builtins))
-	for name, _ := range interpreter.Builtins {
-		builtinFunctions = append(builtinFunctions, name)
-	}
-	tree, globalindices, functionindices, err := resolver.ResolveVariables(tree, builtinFunctions)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
 
 	err = interpreter.Run(tree, args, globalindices, functionindices)
 
@@ -99,7 +99,9 @@ func main() {
 	}
 
 	if ee, ok := err.(interpreter.ErrorExit); ok {
-		os.Exit(ee.Status)
+		if ee.Status != 0 {
+			os.Exit(ee.Status)
+		}
 	} else if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
