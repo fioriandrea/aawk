@@ -249,6 +249,30 @@ var builtinfuncs = map[string]BuiltinFunction{
 		return awknumber(float64(strings.Index(str, substr) + 1)), nil
 	},
 
+	"match": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+		if len(args) != 2 {
+			return null(), inter.runtimeError(called, "incorrect number of arguments")
+		}
+		vs, err := inter.eval(args[0])
+		if err != nil {
+			return null(), err
+		}
+		s := inter.toGoString(vs)
+		re, err := inter.evalRegex(args[1])
+		if err != nil {
+			return null(), err
+		}
+		loc := re.FindStringIndex(s)
+		if loc == nil {
+			loc = []int{-1, -2}
+		}
+		rstart := float64(loc[0] + 1)
+		rlength := float64(loc[1] - loc[0])
+		inter.builtins[lexer.Rstart] = awknumber(rstart)
+		inter.builtins[lexer.Rlength] = awknumber(rlength)
+		return awknumber(rstart), nil
+	},
+
 	"split": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 		if len(args) < 3 {
 			args = append(args, nil)
