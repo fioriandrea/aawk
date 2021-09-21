@@ -118,6 +118,7 @@ type interpreter struct {
 	outprograms outwriters
 	outfiles    outwriters
 	currentFile io.RuneReader
+	stdinFile   io.RuneReader
 	inprograms  inreaders
 	infiles     inreaders
 	rng         rng
@@ -510,16 +511,20 @@ func (inter *interpreter) evalGetline(gl *parser.GetlineExpr) (awkvalue, error) 
 		filestr = file.string(inter.getConvfmt())
 	}
 	var reader io.RuneReader
+	var fetchRecord func(r io.RuneReader) (string, error)
 	switch gl.Op.Type {
 	case lexer.Pipe:
 		reader = inter.inprograms.get(filestr, inter.spawnInProgram)
+		fetchRecord = inter.nextRecord
 	case lexer.Less:
 		reader = inter.infiles.get(filestr, spawnInFile)
+		fetchRecord = inter.nextRecord
 	default:
 		reader = inter.currentFile
+		fetchRecord = inter.nextRecordInputFile
 	}
 	var record string
-	record, err = nextRecord(reader, inter.getRsStr())
+	record, err = fetchRecord(reader)
 	retval := awknumber(0)
 	if err == nil {
 		retval.n = 1
@@ -1018,14 +1023,13 @@ func (inter *interpreter) runNormals() error {
 		return nil
 	}
 
-	inter.builtins[lexer.Nr] = awknumber(1)
 	argv := inter.builtins[lexer.Argv]
 	processed := false
 	for i := 1; i <= int(inter.builtins[lexer.Argc].float()); i++ {
 		filename := inter.toGoString(argv.array[fmt.Sprintf("%d", i)])
 		if i == int(inter.builtins[lexer.Argc].float()) && !processed || filename == "-" {
 			filename = "-"
-			err := inter.processStream(filename, bufio.NewReader(inter.stdin))
+			err := inter.processInputFile(filename, inter.stdinFile)
 			if err != nil && err != io.EOF {
 				return err
 			}
@@ -1035,7 +1039,7 @@ func (inter *interpreter) runNormals() error {
 			if err != nil {
 				return err
 			}
-			err = inter.processStream(file.Name(), bufio.NewReader(file))
+			err = inter.processInputFile(file.Name(), bufio.NewReader(file))
 			if err != nil && err != io.EOF {
 				return err
 			}
@@ -1044,19 +1048,19 @@ func (inter *interpreter) runNormals() error {
 				return err
 			}
 		}
-		inter.currentFile = bufio.NewReader(inter.stdin)
 	}
 	return nil
 }
 
-func (inter *interpreter) processStream(fname string, f io.RuneReader) error {
+func (inter *interpreter) processInputFile(fname string, f io.RuneReader) error {
 	inter.currentFile = f
+	defer func() { inter.currentFile = inter.stdinFile }()
 
 	inter.builtins[lexer.Filename] = awknormalstring(fname)
-	inter.builtins[lexer.Fnr] = awknumber(1)
+	inter.builtins[lexer.Fnr] = awknumber(0)
 
 	for {
-		text, err := nextRecord(inter.currentFile, inter.getRsStr())
+		text, err := inter.nextRecordInputFile(inter.currentFile)
 		if err != nil {
 			return err
 		}
@@ -1100,8 +1104,6 @@ func (inter *interpreter) processStream(fname string, f io.RuneReader) error {
 				}
 			}
 		}
-		inter.builtins[lexer.Nr] = awknumber(inter.builtins[lexer.Nr].float() + 1)
-		inter.builtins[lexer.Fnr] = awknumber(inter.builtins[lexer.Fnr].float() + 1)
 	}
 }
 
@@ -1142,7 +1144,8 @@ func (inter *interpreter) initialize(params RunParams) {
 	inter.stdin = params.Stdin
 	inter.stdout = params.Stdout
 	inter.stderr = params.Stderr
-	inter.currentFile = bufio.NewReader(inter.stdin)
+	inter.stdinFile = bufio.NewReader(inter.stdin)
+	inter.currentFile = inter.stdinFile
 
 	// Caches
 
@@ -1153,7 +1156,9 @@ func (inter *interpreter) initialize(params RunParams) {
 func (inter *interpreter) initializeBuiltinVariables(params RunParams) {
 	// General
 	inter.builtins[lexer.Convfmt] = awknormalstring("%.6g")
+	inter.builtins[lexer.Fnr] = awknumber(0)
 	inter.builtins[lexer.Fs] = awknormalstring(params.Fs)
+	inter.builtins[lexer.Nr] = awknumber(0)
 	inter.builtins[lexer.Ofmt] = awknormalstring("%.6g")
 	inter.builtins[lexer.Ofs] = awknormalstring(" ")
 	inter.builtins[lexer.Ors] = awknormalstring("\n")

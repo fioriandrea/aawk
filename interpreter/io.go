@@ -14,6 +14,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/fioriandrea/aawk/lexer"
 )
 
 type RuneReadCloser interface {
@@ -217,6 +219,19 @@ func spawnInFile(name string) RuneReadCloser {
 		reader: reader,
 		file:   file,
 	}
+}
+
+func (inter *interpreter) nextRecord(r io.RuneReader) (string, error) {
+	return nextRecord(r, inter.getRsStr())
+}
+
+func (inter *interpreter) nextRecordInputFile(r io.RuneReader) (string, error) {
+	s, err := inter.nextRecord(r)
+	if err == nil {
+		inter.builtins[lexer.Nr] = awknumber(inter.builtins[lexer.Nr].float() + 1)
+		inter.builtins[lexer.Fnr] = awknumber(inter.builtins[lexer.Fnr].float() + 1)
+	}
+	return s, err
 }
 
 func nextRecord(reader io.RuneReader, delim string) (string, error) {
