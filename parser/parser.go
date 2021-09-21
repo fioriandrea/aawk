@@ -16,6 +16,7 @@ type parser struct {
 	lexer      lexer.Lexer
 	current    lexer.Token
 	previous   lexer.Token
+	indollar   bool
 	inprint    bool
 	ingetline  bool
 	parendepth int
@@ -1003,6 +1004,8 @@ func (ps *parser) postIncrementExpr() (Expr, error) {
 
 func (ps *parser) dollarExpr() (Expr, error) {
 	if ps.eat(lexer.Dollar) {
+		ps.indollar = true
+		defer func() { ps.indollar = false }()
 		dollar := ps.previous
 		expr, err := ps.termExpr()
 		if err != nil {
@@ -1066,7 +1069,7 @@ func (ps *parser) termExpr() (Expr, error) {
 		defer ps.advance()
 		sub, err = nil, ps.parseErrorAtCurrent("unexpected token")
 	}
-	if err == nil && !ps.isInPrint() && ps.check(lexer.Pipe) {
+	if err == nil && !ps.isInPrint() && !ps.indollar && ps.check(lexer.Pipe) {
 		sub, err = ps.pipeGetlineExpr(sub)
 	}
 	if err != nil && !ps.checkAllowedAfterExpr() {
@@ -1138,7 +1141,7 @@ func (ps *parser) pipeGetlineExpr(prog Expr) (Expr, error) {
 	getline := ps.previous
 	var variable LhsExpr
 	if ps.checkBeginLhs() {
-		varexpr, err := ps.expr()
+		varexpr, err := ps.termExpr()
 		if err != nil {
 			return nil, err
 		}
