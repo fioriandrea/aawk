@@ -1297,7 +1297,7 @@ func (ps *parser) checkAllowedAfterExpr() bool {
 }
 
 func (ps *parser) checkAllowedAfterConcat() bool {
-	return ps.check(lexer.Getline, lexer.Dollar, lexer.Not, lexer.Identifier, lexer.Number, lexer.String, lexer.LeftParen)
+	return ps.check(lexer.Getline, lexer.Dollar, lexer.Not, lexer.Identifier, lexer.IdentifierParen, lexer.Number, lexer.String, lexer.LeftParen)
 }
 
 func (ps *parser) checkEndOfPrintExprList() bool {
