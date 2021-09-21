@@ -58,7 +58,7 @@ type interpreter struct {
 	infiles      inreaders
 	rng          RNG
 	rangematched map[int]bool
-	fprintfcache map[string]func() (string, []func(awkvalue) interface{})
+	fprintfcache map[string][]func(awkvalue) interface{}
 }
 
 type RNG struct {
@@ -173,8 +173,7 @@ func (inter *interpreter) executeSimplePrint(w io.Writer, ps *parser.PrintStat) 
 }
 
 func (inter *interpreter) executePrintf(w io.Writer, ps *parser.PrintStat) error {
-	err := inter.fprintf(w, ps.Print, ps.Exprs)
-	return err
+	return inter.fprintf(w, ps.Print, ps.Exprs)
 }
 
 func (inter *interpreter) executeIf(ifs *parser.IfStat) error {
@@ -1025,7 +1024,7 @@ func (inter *interpreter) initialize(params RunParams, functions []parser.Item) 
 	inter.rng = NewRNG(0)
 	inter.currentFile = bufio.NewReader(os.Stdin)
 	inter.rangematched = map[int]bool{}
-	inter.fprintfcache = map[string]func() (string, []func(awkvalue) interface{}){}
+	inter.fprintfcache = map[string][]func(awkvalue) interface{}{}
 
 	inter.ftable = make([]Callable, len(params.Functionindices))
 

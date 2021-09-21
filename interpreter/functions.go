@@ -1,8 +1,6 @@
 package interpreter
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -10,7 +8,6 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/fioriandrea/aawk/lexer"
@@ -402,45 +399,32 @@ var Builtinfuncs = map[string]NativeFunction{
 			return null(), err
 		}
 		cmdstr := inter.toGoString(v)
+
 		return awknumber(float64(System(cmdstr))), nil
 	},
 }
 
-func System(cmd string) int {
-	c := exec.Command("sh", "-c", cmd)
-	c.Stdin = os.Stdin
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	err := c.Run()
-
-	if err == nil {
-		return 0
-	}
-
-	// Figure out the exit code
-	if ws, ok := c.ProcessState.Sys().(syscall.WaitStatus); ok {
-		if ws.Exited() {
-			return ws.ExitStatus()
+func System(cmdstr string) int {
+	cmd := exec.Command("sh", "-c", cmdstr)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			return exitError.ExitCode()
 		}
-
-		if ws.Signaled() {
-			return -int(ws.Signal())
-		}
+		return -1
 	}
-
-	return -1
+	return 0
 }
 
-// Source: https://github.com/benhoyt/goawk/blob/master/interp/functions.go
-func (inter *interpreter) parseFmtTypes(print lexer.Token, s string) (format string, types []func(awkvalue) interface{}, err error) {
-	if f, ok := inter.fprintfcache[s]; ok {
-		format, types = f()
-		return format, types, nil
+func (inter *interpreter) parseFmtTypes(printtok lexer.Token, s string) (types []func(awkvalue) interface{}, err error) {
+	if stored, ok := inter.fprintfcache[s]; ok {
+		return stored, nil
 	}
 
-	ofmt := inter.getOfmt()
 	tostr := func(v awkvalue) interface{} {
-		return v.string(ofmt)
+		return v.string(inter.getOfmt())
 	}
 	tofloat := func(v awkvalue) interface{} {
 		return v.float()
@@ -448,58 +432,54 @@ func (inter *interpreter) parseFmtTypes(print lexer.Token, s string) (format str
 	toint := func(v awkvalue) interface{} {
 		return int(v.float())
 	}
-	touint := func(v awkvalue) interface{} {
-		return uint(v.float())
-	}
-	tochar := func(v awkvalue) interface{} {
-		return []rune(v.string(ofmt))[0]
+	tobool := func(v awkvalue) interface{} {
+		return v.bool()
 	}
 
-	out := []byte(s)
 	for i := 0; i < len(s); i++ {
-		if s[i] == '%' {
+		if s[i] != '%' {
+			continue
+		}
+		i++
+		if i < len(s) && s[i] == '%' {
+			continue
+		}
+		if i < len(s) && strings.Contains("+-# 0", s[i:i+1]) {
 			i++
-			if i >= len(s) {
-				return "", nil, errors.New("expected type specifier after %")
-			}
-			if s[i] == '%' {
-				continue
-			}
-			for i < len(s) && bytes.IndexByte([]byte(" .-+*#0123456789"), s[i]) >= 0 {
-				if s[i] == '*' {
-					types = append(types, toint)
-				}
-				i++
-			}
-			if i >= len(s) {
-				return "", nil, errors.New("expected type specifier after %")
-			}
-			var t func(awkvalue) interface{}
-			switch s[i] {
-			case 's':
-				t = tostr
-			case 'd', 'i', 'o', 'x', 'X':
-				t = toint
-			case 'f', 'e', 'E', 'g', 'G':
-				t = tofloat
-			case 'u':
-				t = touint
-				out[i] = 'd'
-			case 'c':
-				t = tochar
-				out[i] = 's'
-			default:
-				return "", nil, fmt.Errorf("invalid format type %q", s[i])
-			}
-			types = append(types, t)
+		}
+		if i < len(s) && s[i] == '*' {
+			types = append(types, toint)
+			i++
+		}
+		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+			i++
+		}
+		if i < len(s) && s[i] == '.' {
+			i++
+		}
+		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+			i++
+		}
+		if i >= len(s) {
+			return nil, inter.runtimeError(printtok, "expected format type at end of string")
+		}
+		switch s[i] {
+		case 't': // Boolean
+			types = append(types, tobool)
+		case 'c', 'd', 'o', 'O', 'U': // Integer
+			types = append(types, toint)
+		case 'b', 'e', 'E', 'f', 'F', 'g', 'G', 'x', 'X': // Float
+			types = append(types, tofloat)
+		case 's', 'q', 'v': // String
+			types = append(types, tostr)
+		default:
+			return nil, inter.runtimeError(printtok, fmt.Sprintf("unknown format %c", s[i]))
 		}
 	}
-
-	format = string(out)
 	if len(inter.fprintfcache) < 100 {
-		inter.fprintfcache[s] = func() (string, []func(awkvalue) interface{}) { return format, types }
+		inter.fprintfcache[s] = types
 	}
-	return format, types, nil
+	return types, nil
 }
 
 func (inter *interpreter) fprintf(w io.Writer, print lexer.Token, exprs []parser.Expr) error {
@@ -507,9 +487,10 @@ func (inter *interpreter) fprintf(w io.Writer, print lexer.Token, exprs []parser
 	if err != nil {
 		return err
 	}
-	formatstr, convs, err := inter.parseFmtTypes(print, format.string(inter.getConvfmt()))
+	formatstr := inter.toGoString(format)
+	convs, err := inter.parseFmtTypes(print, formatstr)
 	if err != nil {
-		return nil
+		return err
 	}
 	if len(convs) > len(exprs[1:]) {
 		return inter.runtimeError(print, "run out of arguments for formatted output")
