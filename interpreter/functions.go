@@ -228,6 +228,10 @@ var builtinfuncs = map[string]BuiltinFunction{
 
 	// String functions
 
+	"gsub": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+		return generalsub(inter, called, args, true)
+	},
+
 	"index": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 		if len(args) != 2 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
@@ -302,6 +306,10 @@ var builtinfuncs = map[string]BuiltinFunction{
 			return null(), err
 		}
 		return awknormalstring(str.String()), nil
+	},
+
+	"sub": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+		return generalsub(inter, called, args, false)
 	},
 
 	"substr": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
@@ -515,4 +523,71 @@ func (inter *interpreter) fprintf(w io.Writer, print lexer.Token, exprs []parser
 	}
 	fmt.Fprintf(w, formatstr, args...)
 	return nil
+}
+
+func generalsub(inter *interpreter, called lexer.Token, args []parser.Expr, global bool) (awkvalue, error) {
+	if len(args) < 3 {
+		args = append(args, nil)
+	}
+	if len(args) != 3 {
+		return null(), inter.runtimeError(called, "incorrect number of arguments")
+	}
+	re, err := inter.evalRegex(args[0])
+	if err != nil {
+		return null(), err
+	}
+	vrepl, err := inter.eval(args[1])
+	if err != nil {
+		return null(), err
+	}
+	repl := inter.toGoString(vrepl)
+	if args[2] == nil {
+		res := sub(re, repl, inter.toGoString(inter.getField(0)), global)
+		inter.setField(0, awknormalstring(res))
+	} else {
+		if lhs, islhs := args[2].(parser.LhsExpr); islhs {
+			v, err := inter.eval(lhs)
+			if err != nil {
+				return null(), err
+			}
+			res := sub(re, repl, inter.toGoString(v), global)
+			inter.evalAssignToLhs(lhs, awknormalstring(res))
+		} else {
+			return null(), inter.runtimeError(args[2].Token(), "expected lhs")
+		}
+	}
+	return null(), nil
+}
+
+func sub(re *regexp.Regexp, repl string, src string, global bool) string {
+	var count int
+	return re.ReplaceAllStringFunc(src, func(matched string) string {
+		if !global && count > 0 {
+			return matched
+		}
+		count++
+		b := make([]byte, 0, 10)
+		for i := 0; i < len(repl); i++ {
+			if repl[i] == '&' {
+				b = append(b, matched...)
+			} else if repl[i] == '\\' {
+				i++
+				if i >= len(repl) {
+					b = append(b, '\\')
+					continue
+				}
+				switch repl[i] {
+				case '&':
+					b = append(b, '&')
+				case '\\':
+					b = append(b, '\\')
+				default:
+					b = append(b, '\\', repl[i])
+				}
+			} else {
+				b = append(b, repl[i])
+			}
+		}
+		return string(b)
+	})
 }
