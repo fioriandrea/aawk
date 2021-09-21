@@ -669,41 +669,8 @@ func (ps *parser) exprList(eolfn func() bool) ([]Expr, error) {
 }
 
 func (ps *parser) expr() (Expr, error) {
-	sub, err := ps.pipeGetlineExpr()
+	sub, err := ps.assignExpr()
 	return sub, err
-}
-
-func (ps *parser) pipeGetlineExpr() (Expr, error) {
-	prog, err := ps.assignExpr()
-	if err != nil {
-		return nil, err
-	}
-	if !ps.isInPrint() && ps.eat(lexer.Pipe) {
-		op := ps.previous
-		if !ps.eat(lexer.Getline) {
-			return nil, ps.parseErrorAtCurrent("expected 'getline' after '|'")
-		}
-		getline := ps.previous
-		var variable LhsExpr
-		if ps.checkBeginLhs() {
-			varexpr, err := ps.expr()
-			if err != nil {
-				return nil, err
-			}
-			var islhs bool
-			variable, islhs = varexpr.(LhsExpr)
-			if !islhs {
-				return nil, ps.parseErrorAt(op, "expected lhs after 'getline'")
-			}
-		}
-		return &GetlineExpr{
-			Op:       op,
-			Getline:  getline,
-			Variable: variable,
-			File:     prog,
-		}, nil
-	}
-	return prog, nil
 }
 
 func (ps *parser) assignExpr() (Expr, error) {
@@ -1041,10 +1008,14 @@ func (ps *parser) dollarExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &DollarExpr{
+		res := &DollarExpr{
 			Dollar: dollar,
 			Field:  expr,
-		}, nil
+		}
+		if !ps.isInPrint() && ps.check(lexer.Pipe) {
+			return ps.pipeGetlineExpr(res)
+		}
+		return res, nil
 	}
 	texpr, err := ps.termExpr()
 	return texpr, err
@@ -1094,6 +1065,9 @@ func (ps *parser) termExpr() (Expr, error) {
 	default:
 		defer ps.advance()
 		sub, err = nil, ps.parseErrorAtCurrent("unexpected token")
+	}
+	if err == nil && !ps.isInPrint() && ps.check(lexer.Pipe) {
+		sub, err = ps.pipeGetlineExpr(sub)
 	}
 	if err != nil && !ps.checkAllowedAfterExpr() {
 		sub, err = nil, ps.parseErrorAtCurrent("unexpected token after term")
@@ -1152,6 +1126,33 @@ func (ps *parser) callExpr(called lexer.Token) (Expr, error) {
 			Id: called,
 		},
 		Args: exprs,
+	}, nil
+}
+
+func (ps *parser) pipeGetlineExpr(prog Expr) (Expr, error) {
+	ps.eat(lexer.Pipe)
+	op := ps.previous
+	if !ps.eat(lexer.Getline) {
+		return nil, ps.parseErrorAtCurrent("expected 'getline' after '|'")
+	}
+	getline := ps.previous
+	var variable LhsExpr
+	if ps.checkBeginLhs() {
+		varexpr, err := ps.expr()
+		if err != nil {
+			return nil, err
+		}
+		var islhs bool
+		variable, islhs = varexpr.(LhsExpr)
+		if !islhs {
+			return nil, ps.parseErrorAt(op, "expected lhs after 'getline'")
+		}
+	}
+	return &GetlineExpr{
+		Op:       op,
+		Getline:  getline,
+		Variable: variable,
+		File:     prog,
 	}, nil
 }
 
