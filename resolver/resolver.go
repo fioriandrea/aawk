@@ -2,7 +2,6 @@ package resolver
 
 import (
 	"fmt"
-	"os"
 	"regexp"
 	"strconv"
 
@@ -505,5 +504,5 @@ func (res *resolver) exprs(es []parser.Expr) error {
 }
 
 func (res *resolver) resolveError(tok lexer.Token, msg string) error {
-	return fmt.Errorf("%s: at %d (%s): %s", os.Args[0], tok.Line, tok.Lexeme, msg)
+	return fmt.Errorf("at %d (%s): %s", tok.Line, tok.Lexeme, msg)
 }

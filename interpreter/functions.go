@@ -91,13 +91,13 @@ func (f *UserFunction) Call(inter *interpreter, called lexer.Token, args []parse
 	return retval, nil
 }
 
-type NativeFunction func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error)
+type BuiltinFunction func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error)
 
-func (nf NativeFunction) Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+func (nf BuiltinFunction) Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
 	return nf(inter, called, args)
 }
 
-var Builtinfuncs = map[string]NativeFunction{
+var builtinfuncs = map[string]BuiltinFunction{
 	// Arithmetic functions
 
 	"atan2": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {

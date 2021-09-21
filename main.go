@@ -6,13 +6,9 @@ import (
 	"io"
 	"log"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/fioriandrea/aawk/interpreter"
-	"github.com/fioriandrea/aawk/lexer"
-	"github.com/fioriandrea/aawk/parser"
-	"github.com/fioriandrea/aawk/resolver"
 )
 
 func printHelp(w io.Writer) {
@@ -99,57 +95,18 @@ outer:
 	return fs, variables, program, remaining
 }
 
-func Exec(fs string, variables []string, program io.RuneReader, arguments []string) error {
-	if _, err := regexp.Compile(fs); err != nil {
-		return programError("invalid FS")
-	}
-
-	lex := lexer.NewLexer(program)
-	items, err := parser.GetItems(lex)
-	if err != nil {
-		return err
-	}
-
-	builtinFunctions := make([]string, 0, len(lexer.Builtinfuncs))
-	for name := range lexer.Builtinfuncs {
-		builtinFunctions = append(builtinFunctions, name)
-	}
-
-	globalindices, functionindices, err := resolver.ResolveVariables(items, builtinFunctions)
-	if err != nil {
-		return err
-	}
-
-	globalpreassign := map[int]string{}
-	builtinpreassing := map[int]string{}
-	for _, variable := range variables {
-		splits := strings.Split(variable, "=")
-		if i, ok := lexer.Builtinvars[splits[0]]; ok {
-			builtinpreassing[i] = splits[1]
-		} else if i, ok := globalindices[splits[0]]; ok {
-			globalpreassign[i] = splits[1]
-		}
-	}
-
-	return interpreter.Run(interpreter.RunParams{
-		Items:            items,
-		Fs:               fs,
-		Arguments:        arguments,
-		Globalindices:    globalindices,
-		Functionindices:  functionindices,
-		Builtinpreassing: builtinpreassing,
-		Globalpreassign:  globalpreassign,
-	})
-}
-
 func main() {
 	program, variables, fs, remaining := parseCliArguments()
 
-	err := Exec(program, variables, fs, remaining)
-	if ee, ok := err.(interpreter.ErrorExit); ok {
-		os.Exit(ee.Status)
-	} else if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	errs := interpreter.ExecuteCL(program, variables, fs, remaining, os.Stdin, os.Stdout, os.Stderr)
+	for _, err := range errs {
+		if ee, ok := err.(interpreter.ErrorExit); ok {
+			os.Exit(ee.Status)
+		} else if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", os.Args[0], err.Error())
+		}
+	}
+	if len(errs) > 0 {
 		os.Exit(1)
 	}
 }

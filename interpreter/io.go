@@ -35,10 +35,10 @@ func (c outcommand) Close() error {
 	return nil
 }
 
-func spawnOutProgram(name string) io.WriteCloser {
+func spawnOutProgram(name string, stdout io.Writer, stderr io.Writer) io.WriteCloser {
 	cmd := exec.Command("sh", "-c", name)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		log.Fatal(err)
@@ -51,6 +51,10 @@ func spawnOutProgram(name string) io.WriteCloser {
 		cmd:   cmd,
 	}
 	return res
+}
+
+func (inter *interpreter) spawnOutProgram(name string) io.WriteCloser {
+	return spawnOutProgram(name, inter.stdout, inter.stderr)
 }
 
 func spawnOutFile(name string, mode int) io.WriteCloser {
@@ -162,21 +166,25 @@ func (ic incommand) Close() error {
 	return nil
 }
 
-func spawnInProgram(name string) RuneReadCloser {
+func spawnInProgram(name string, stdin io.Reader, stdout io.Writer) RuneReadCloser {
 	cmd := exec.Command("sh", "-c", name)
-	stdout, err := cmd.StdoutPipe()
+	cmd.Stdin = stdin
+	stdoutp, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Fatal(err)
 	}
-	cmd.Stdin = os.Stdin
 	if err := cmd.Start(); err != nil {
 		log.Fatal(err)
 	}
 	res := incommand{
-		stdout: bufio.NewReader(stdout),
+		stdout: bufio.NewReader(stdoutp),
 		cmd:    cmd,
 	}
 	return res
+}
+
+func (inter *interpreter) spawnInProgram(name string) RuneReadCloser {
+	return spawnInProgram(name, inter.stdin, inter.stdout)
 }
 
 type infile struct {

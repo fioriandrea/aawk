@@ -414,3 +414,11 @@ type RangePattern struct {
 func (p *RangePattern) Token() lexer.Token {
 	return p.Comma
 }
+
+type Items struct {
+	Functions []*FunctionDef
+	Begins    []*PatternAction
+	Normals   []*PatternAction
+	Ends      []*PatternAction
+	All       []Item
+}

@@ -2,7 +2,6 @@ package parser
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/fioriandrea/aawk/lexer"
 )
@@ -19,35 +18,56 @@ type parser struct {
 	infunction bool
 }
 
-func GetItems(lexer lexer.Lexer) ([]Item, error) {
+func GetItems(lex lexer.Lexer) (Items, []error) {
 	ps := parser{
-		lexer: lexer,
+		lexer: lex,
 	}
 	ps.advance()
-	res, err := ps.itemList()
-	if err != nil {
-		return nil, err
+	items, errs := ps.itemList()
+	if len(errs) > 0 {
+		return Items{}, errs
 	}
+
+	var res Items
+	for _, item := range items {
+		switch i := item.(type) {
+		case *FunctionDef:
+			res.Functions = append(res.Functions, i)
+		case *PatternAction:
+			switch p := i.Pattern.(type) {
+			case *SpecialPattern:
+				if p.Type.Type == lexer.Begin {
+					res.Begins = append(res.Begins, i)
+				} else {
+					res.Ends = append(res.Ends, i)
+				}
+			default:
+				res.Normals = append(res.Normals, i)
+			}
+		}
+	}
+	res.All = items
+
 	return res, nil
 }
 
-func (ps *parser) itemList() ([]Item, error) {
+func (ps *parser) itemList() ([]Item, []error) {
+	errors := make([]error, 0)
 	items := make([]Item, 0)
 	ps.skipNewLines()
 	for ps.current.Type != lexer.Eof {
-		item, err := ps.item()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return nil, err
+		item, errs := ps.item()
+		if len(errs) > 0 {
+			errors = append(errors, errs...)
 		}
 		items = append(items, item)
 		ps.eatTerminator()
 		ps.skipNewLines()
 	}
-	return items, nil
+	return items, errors
 }
 
-func (ps *parser) item() (Item, error) {
+func (ps *parser) item() (Item, []error) {
 	switch ps.current.Type {
 	case lexer.Function:
 		return ps.functionItem()
@@ -56,21 +76,21 @@ func (ps *parser) item() (Item, error) {
 	}
 }
 
-func (ps *parser) functionItem() (*FunctionDef, error) {
+func (ps *parser) functionItem() (*FunctionDef, []error) {
 	ps.infunction = true
 	defer func() { ps.infunction = false }()
 	ps.advance()
 	if !ps.eat(lexer.Identifier, lexer.IdentifierParen) {
-		return nil, ps.parseErrorAtCurrent("expected identifier after 'function'")
+		return nil, []error{ps.parseErrorAtCurrent("expected identifier after 'function'")}
 	}
 	name := ps.previous
 	if name.Type != lexer.IdentifierParen && !ps.eat(lexer.LeftParen) {
-		return nil, ps.parseErrorAtCurrent("expected '(' after function name")
+		return nil, []error{ps.parseErrorAtCurrent("expected '(' after function name")}
 	}
 	args := make([]lexer.Token, 0)
 	for ps.eat(lexer.Identifier) {
 		if _, ok := lexer.Builtinvars[ps.previous.Lexeme]; ok {
-			return nil, ps.parseErrorAt(ps.previous, "cannot use built in variable as function parameter")
+			return nil, []error{ps.parseErrorAt(ps.previous, "cannot use built in variable as function parameter")}
 		}
 		args = append(args, ps.previous)
 		if !ps.eat(lexer.Comma) {
@@ -78,15 +98,15 @@ func (ps *parser) functionItem() (*FunctionDef, error) {
 		}
 	}
 	if !ps.eat(lexer.RightParen) {
-		return nil, ps.parseErrorAtCurrent("expected ')' after argument list")
+		return nil, []error{ps.parseErrorAtCurrent("expected ')' after argument list")}
 	}
 	ps.skipNewLines()
 	if !ps.check(lexer.LeftCurly) {
-		return nil, ps.parseErrorAtCurrent("expected '{' before function body")
+		return nil, []error{ps.parseErrorAtCurrent("expected '{' before function body")}
 	}
-	body, err := ps.blockStat()
-	if err != nil {
-		return nil, err
+	body, errs := ps.blockStat()
+	if len(errs) > 0 {
+		return nil, errs
 	}
 	return &FunctionDef{
 		Name: name,
@@ -95,11 +115,11 @@ func (ps *parser) functionItem() (*FunctionDef, error) {
 	}, nil
 }
 
-func (ps *parser) patternActionItem() (*PatternAction, error) {
+func (ps *parser) patternActionItem() (*PatternAction, []error) {
 	begtok := ps.current
 	pat, err := ps.pattern()
 	if err != nil {
-		return nil, err
+		return nil, []error{err}
 	}
 	if pat == nil {
 		pat = &ExprPattern{
@@ -114,15 +134,16 @@ func (ps *parser) patternActionItem() (*PatternAction, error) {
 	}
 	var act BlockStat
 	if ps.check(lexer.LeftCurly) {
-		act, err = ps.blockStat()
-		if err != nil {
-			return nil, err
+		var errs []error
+		act, errs = ps.blockStat()
+		if len(errs) > 0 {
+			return nil, errs
 		}
 	}
 	switch pat.(type) {
 	case *SpecialPattern:
 		if act == nil {
-			return nil, ps.parseErrorAt(begtok, "special pattern must have an action")
+			return nil, []error{ps.parseErrorAt(begtok, "special pattern must have an action")}
 		}
 	default:
 		if act == nil {
@@ -177,15 +198,14 @@ func (ps *parser) pattern() (Pattern, error) {
 	}
 }
 
-func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, error) {
+func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, []error) {
 	ps.skipNewLines()
 	stats := make([]Stat, 0)
-	var errtoret error = nil
+	errors := make([]error, 0)
 	for ps.current.Type != lexer.Eof && !ps.check(types...) {
-		stat, err := ps.stat()
-		if err != nil {
-			errtoret = err
-			fmt.Fprintln(os.Stderr, err)
+		stat, errs := ps.stat()
+		if len(errs) > 0 {
+			errors = append(errors, errs...)
 			for !ps.checkTerminator() {
 				ps.advance()
 			}
@@ -193,23 +213,24 @@ func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, error) {
 		}
 		stats = append(stats, stat)
 	}
-	return stats, errtoret
+	return stats, errors
 }
 
-func (ps *parser) stat() (Stat, error) {
+func (ps *parser) stat() (Stat, []error) {
 	var stat Stat
 	var err error
+	var errs []error
 	switch ps.current.Type {
 	case lexer.If:
-		stat, err = ps.ifStat()
+		stat, errs = ps.ifStat()
 	case lexer.While:
-		stat, err = ps.whileStat()
+		stat, errs = ps.whileStat()
 	case lexer.Do:
-		stat, err = ps.doWhileStat()
+		stat, errs = ps.doWhileStat()
 	case lexer.For:
-		stat, err = ps.forStat()
+		stat, errs = ps.forStat()
 	case lexer.LeftCurly:
-		stat, err = ps.blockStat()
+		stat, errs = ps.blockStat()
 	case lexer.Next:
 		stat, err = ps.nextStat()
 	case lexer.Break:
@@ -229,19 +250,21 @@ func (ps *parser) stat() (Stat, error) {
 		stat, err = ps.simpleStat()
 	}
 	ps.skipNewLines()
-	return stat, err
+	if err != nil {
+		errs = append(errs, err)
+	}
+	return stat, errs
 }
 
-func (ps *parser) blockStat() (BlockStat, error) {
+func (ps *parser) blockStat() (BlockStat, []error) {
 	ps.eat(lexer.LeftCurly)
-	ret, err := ps.statListUntil(lexer.RightCurly)
-	if err != nil {
-		return nil, err
+	ret, errs := ps.statListUntil(lexer.RightCurly)
+	if len(errs) > 0 {
+		return nil, errs
 	}
 	if !ps.eat(lexer.RightCurly) {
 		err := ps.parseErrorAtCurrent("expected '}'")
-		fmt.Fprint(os.Stderr, err)
-		return nil, err
+		return nil, []error{err}
 	}
 	return ret, nil
 }
@@ -419,29 +442,29 @@ func (ps *parser) deleteStat() (*DeleteStat, error) {
 	}, nil
 }
 
-func (ps *parser) ifStat() (*IfStat, error) {
+func (ps *parser) ifStat() (*IfStat, []error) {
 	ps.eat(lexer.If)
 	op := ps.previous
 	if !ps.eat(lexer.LeftParen) {
-		return nil, ps.parseErrorAtCurrent("missing '(' for if statement condition")
+		return nil, []error{ps.parseErrorAtCurrent("missing '(' for if statement condition")}
 	}
 	cond, err := ps.expr()
 	if err != nil {
-		return nil, err
+		return nil, []error{err}
 	}
 	if !ps.eat(lexer.RightParen) {
-		return nil, ps.parseErrorAtCurrent("missing ')' closing if statement condition")
+		return nil, []error{ps.parseErrorAtCurrent("missing ')' closing if statement condition")}
 	}
 	ps.eat(lexer.Newline)
-	body, err := ps.stat()
-	if err != nil {
-		return nil, err
+	body, errs := ps.stat()
+	if len(errs) > 0 {
+		return nil, errs
 	}
 	var elsebody Stat
 	if ps.eat(lexer.Else) {
-		elsebody, err = ps.stat()
-		if err != nil {
-			return nil, err
+		elsebody, errs = ps.stat()
+		if len(errs) > 0 {
+			return nil, errs
 		}
 	}
 	return &IfStat{
@@ -452,25 +475,25 @@ func (ps *parser) ifStat() (*IfStat, error) {
 	}, nil
 }
 
-func (ps *parser) whileStat() (*ForStat, error) {
+func (ps *parser) whileStat() (*ForStat, []error) {
 	ps.loopdepth++
 	defer func() { ps.loopdepth-- }()
 	ps.eat(lexer.While)
 	op := ps.previous
 	if !ps.eat(lexer.LeftParen) {
-		return nil, ps.parseErrorAtCurrent("missing '(' for while statement condition")
+		return nil, []error{ps.parseErrorAtCurrent("missing '(' for while statement condition")}
 	}
 	cond, err := ps.expr()
 	if err != nil {
-		return nil, err
+		return nil, []error{err}
 	}
 	if !ps.eat(lexer.RightParen) {
-		return nil, ps.parseErrorAtCurrent("missing ')' closing while statement condition")
+		return nil, []error{ps.parseErrorAtCurrent("missing ')' closing while statement condition")}
 	}
 	ps.eat(lexer.Newline)
-	body, err := ps.stat()
-	if err != nil {
-		return nil, err
+	body, errs := ps.stat()
+	if len(errs) > 0 {
+		return nil, errs
 	}
 	return &ForStat{
 		For:  op,
@@ -479,27 +502,27 @@ func (ps *parser) whileStat() (*ForStat, error) {
 	}, nil
 }
 
-func (ps *parser) doWhileStat() (Stat, error) {
+func (ps *parser) doWhileStat() (Stat, []error) {
 	ps.loopdepth++
 	defer func() { ps.loopdepth-- }()
 	ps.eat(lexer.Do)
-	body, err := ps.stat()
-	if err != nil {
-		return nil, err
+	body, errs := ps.stat()
+	if len(errs) > 0 {
+		return nil, errs
 	}
 	if !ps.eat(lexer.While) {
-		return nil, ps.parseErrorAtCurrent("expected 'while' for do-while statement")
+		return nil, []error{ps.parseErrorAtCurrent("expected 'while' for do-while statement")}
 	}
 	whileop := ps.previous
 	if !ps.eat(lexer.LeftParen) {
-		return nil, ps.parseErrorAtCurrent("missing '(' for do-while statement condition")
+		return nil, []error{ps.parseErrorAtCurrent("missing '(' for do-while statement condition")}
 	}
 	cond, err := ps.expr()
 	if err != nil {
-		return nil, err
+		return nil, []error{err}
 	}
 	if !ps.eat(lexer.RightParen) {
-		return nil, ps.parseErrorAtCurrent("missing ')' closing do-while statement condition")
+		return nil, []error{ps.parseErrorAtCurrent("missing ')' closing do-while statement condition")}
 	}
 	return BlockStat([]Stat{
 		body,
@@ -511,20 +534,20 @@ func (ps *parser) doWhileStat() (Stat, error) {
 	}), nil
 }
 
-func (ps *parser) forStat() (Stat, error) {
+func (ps *parser) forStat() (Stat, []error) {
 	ps.loopdepth++
 	defer func() { ps.loopdepth-- }()
 	var err error
 	ps.eat(lexer.For)
 	op := ps.previous
 	if !ps.eat(lexer.LeftParen) {
-		return nil, ps.parseErrorAtCurrent("missing '(' after 'for'")
+		return nil, []error{ps.parseErrorAtCurrent("missing '(' after 'for'")}
 	}
 	var init Stat
 	if !ps.check(lexer.Semicolon) {
 		init, err = ps.simpleStat()
 		if err != nil {
-			return nil, err
+			return nil, []error{err}
 		}
 		if ps.eat(lexer.RightParen) {
 			ps.eat(lexer.Newline)
@@ -532,35 +555,35 @@ func (ps *parser) forStat() (Stat, error) {
 		}
 	}
 	if !ps.eat(lexer.Semicolon) {
-		return nil, ps.parseErrorAtCurrent("expected ';' after for statement initialization")
+		return nil, []error{ps.parseErrorAtCurrent("expected ';' after for statement initialization")}
 	}
 
 	var cond Expr
 	if !ps.check(lexer.Semicolon) {
 		cond, err = ps.expr()
 		if err != nil {
-			return nil, err
+			return nil, []error{err}
 		}
 	}
 	if !ps.eat(lexer.Semicolon) {
-		return nil, ps.parseErrorAtCurrent("expected ';' after for statement condition")
+		return nil, []error{ps.parseErrorAtCurrent("expected ';' after for statement condition")}
 	}
 
 	var inc Stat
 	if !ps.check(lexer.RightParen) {
 		inc, err = ps.simpleStat()
 		if err != nil {
-			return nil, err
+			return nil, []error{err}
 		}
 	}
 	if !ps.eat(lexer.RightParen) {
-		return nil, ps.parseErrorAtCurrent("expected ')' after for statement increment")
+		return nil, []error{ps.parseErrorAtCurrent("expected ')' after for statement increment")}
 	}
 	ps.eat(lexer.Newline)
 
-	body, err := ps.stat()
-	if err != nil {
-		return nil, err
+	body, errs := ps.stat()
+	if len(errs) > 0 {
+		return nil, errs
 	}
 
 	if cond == nil {
@@ -580,24 +603,24 @@ func (ps *parser) forStat() (Stat, error) {
 	}, nil
 }
 
-func (ps *parser) finishForEachStat(fortok lexer.Token, init Stat) (*ForEachStat, error) {
+func (ps *parser) finishForEachStat(fortok lexer.Token, init Stat) (*ForEachStat, []error) {
 	ps.eat(lexer.RightParen)
 	rparen := ps.previous
 	exprstat, isexprstat := init.(*ExprStat)
 	if !isexprstat {
-		return nil, ps.parseErrorAt(rparen, "expected ';'")
+		return nil, []error{ps.parseErrorAt(rparen, "expected ';'")}
 	}
 	inexpr, isinexpr := exprstat.Expr.(*InExpr)
 	if !isinexpr {
-		return nil, ps.parseErrorAt(rparen, "expected ';'")
+		return nil, []error{ps.parseErrorAt(rparen, "expected ';'")}
 	}
 	id, isid := inexpr.Left.(*IdExpr)
 	if !isid {
-		return nil, ps.parseErrorAt(rparen, "expected ';'")
+		return nil, []error{ps.parseErrorAt(rparen, "expected ';'")}
 	}
-	body, err := ps.stat()
-	if err != nil {
-		return nil, err
+	body, errs := ps.stat()
+	if len(errs) > 0 {
+		return nil, errs
 	}
 	return &ForEachStat{
 		For:   fortok,
@@ -1198,7 +1221,7 @@ func (ps *parser) insideIndexing(id lexer.Token) (Expr, error) {
 }
 
 func (ps *parser) parseErrorAt(tok lexer.Token, msg string) error {
-	prelude := fmt.Sprintf("%s: at line %d", os.Args[0], tok.Line)
+	prelude := fmt.Sprintf("at line %d", tok.Line)
 	if ps.current.Type == lexer.Error {
 		if len(msg) > 0 {
 			return fmt.Errorf("%s: lexer error: %s", prelude, msg)
