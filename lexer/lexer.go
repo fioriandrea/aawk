@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2021 Andrea Fiori <andrea.fiori.1998@gmail.com>
+ *
+ * Licensed under GPLv2, see file LICENSE in this source tree.
+ */
+
 package lexer
 
 import (
