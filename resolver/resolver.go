@@ -351,7 +351,7 @@ func (res *resolver) lhsExpr(e parser.LhsExpr) error {
 	case *parser.IndexingExpr:
 		return res.indexingExpr(v)
 	}
-	return res.resolveError(e.Token(), "undefined lhs")
+	return nil
 }
 
 func (res *resolver) idExpr(e *parser.IdExpr) error {
