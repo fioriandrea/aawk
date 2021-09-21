@@ -519,7 +519,7 @@ func (inter *interpreter) evalGetline(gl *parser.GetlineExpr) (awkvalue, error) 
 		reader = inter.currentFile
 	}
 	var record string
-	record, err = nextRecord(reader, inter.getRsRune())
+	record, err = nextRecord(reader, inter.getRsStr())
 	retval := awknumber(0)
 	if err == nil {
 		retval.n = 1
@@ -966,13 +966,8 @@ func (inter *interpreter) getConvfmt() string {
 	return inter.builtins[lexer.Convfmt].str
 }
 
-func (inter *interpreter) getRsRune() rune {
-	rs := inter.toGoString(inter.builtins[lexer.Rs])
-	if rs == "" {
-		rs = "\n"
-	}
-	runes := []rune(rs)
-	return runes[0]
+func (inter *interpreter) getRsStr() string {
+	return inter.toGoString(inter.builtins[lexer.Rs])
 }
 
 func (inter *interpreter) runtimeError(tok lexer.Token, msg string) error {
@@ -1061,7 +1056,7 @@ func (inter *interpreter) processStream(fname string, f io.RuneReader) error {
 	inter.builtins[lexer.Fnr] = awknumber(1)
 
 	for {
-		text, err := nextRecord(inter.currentFile, inter.getRsRune())
+		text, err := nextRecord(inter.currentFile, inter.getRsStr())
 		if err != nil {
 			return err
 		}

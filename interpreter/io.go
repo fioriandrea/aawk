@@ -219,19 +219,39 @@ func spawnInFile(name string) RuneReadCloser {
 	}
 }
 
-func nextRecord(reader io.RuneReader, delim rune) (string, error) {
+func nextRecord(reader io.RuneReader, delim string) (string, error) {
+	if delim == "" {
+		return nextMultilineRecord(reader)
+	} else {
+		return nextSimpleRecord(reader, rune(delim[0]))
+	}
+}
+
+func nextMultilineRecord(reader io.RuneReader) (string, error) {
+	var buff strings.Builder
+	err := skipBlanks(&buff, reader)
+	if err != nil {
+		return "", err
+	}
+	for {
+		s, err := nextSimpleRecord(reader, '\n')
+		if err != nil {
+			return handleEndOfInput(buff, err)
+		}
+		if s == "" {
+			break
+		}
+		fmt.Fprintf(&buff, "\n%s", s)
+	}
+	return buff.String(), nil
+}
+
+func nextSimpleRecord(reader io.RuneReader, delim rune) (string, error) {
 	var buff strings.Builder
 	for {
 		c, _, err := reader.ReadRune()
 		if err != nil {
-			if err != io.EOF {
-				return "", err
-			}
-			str := buff.String()
-			if len(str) == 0 {
-				return "", err
-			}
-			return str, nil
+			return handleEndOfInput(buff, err)
 		}
 		if c == delim {
 			break
@@ -239,4 +259,29 @@ func nextRecord(reader io.RuneReader, delim rune) (string, error) {
 		fmt.Fprintf(&buff, "%c", c)
 	}
 	return buff.String(), nil
+}
+
+func skipBlanks(buff io.Writer, reader io.RuneReader) error {
+	for {
+		s, err := nextSimpleRecord(reader, '\n')
+		if err != nil {
+			return err
+		}
+		if s != "" {
+			fmt.Fprintf(buff, "%s", s)
+			break
+		}
+	}
+	return nil
+}
+
+func handleEndOfInput(buff strings.Builder, err error) (string, error) {
+	if err != io.EOF {
+		return "", err
+	}
+	str := buff.String()
+	if len(str) == 0 {
+		return "", io.EOF
+	}
+	return str, nil
 }
