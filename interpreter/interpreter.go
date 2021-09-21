@@ -984,20 +984,18 @@ func (inter *interpreter) run() error {
 	var errexit ErrorExit
 
 	err := inter.runBegins()
-	if err != nil {
-		if ee, ok := err.(ErrorExit); ok {
-			errexit = ee
-			skipNormals = true
-		} else {
-			return err
-		}
+	if ee, ok := err.(ErrorExit); ok {
+		errexit = ee
+		skipNormals = true
+	} else if err != nil {
+		return err
 	}
 
 	if !skipNormals {
 		err := inter.runNormals()
 		if ee, ok := err.(ErrorExit); ok {
 			errexit = ee
-		} else {
+		} else if err != nil {
 			return err
 		}
 	}
@@ -1005,7 +1003,7 @@ func (inter *interpreter) run() error {
 	err = inter.runEnds()
 	if ee, ok := err.(ErrorExit); ok {
 		errexit = ee
-	} else {
+	} else if err != nil {
 		return err
 	}
 	return errexit

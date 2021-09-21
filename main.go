@@ -46,6 +46,8 @@ func parseCliArguments() (fs string, variables []string, program io.RuneReader, 
 		os.Exit(1)
 	}
 
+	fs = " "
+
 	var i int
 	var programfiles []io.Reader
 
@@ -102,9 +104,9 @@ outer:
 }
 
 func main() {
-	program, variables, fs, remaining := parseCliArguments()
+	fs, variables, program, remaining := parseCliArguments()
 
-	errs := interpreter.ExecuteCL(program, variables, fs, remaining, os.Stdin, os.Stdout, os.Stderr)
+	errs := interpreter.ExecuteCL(fs, variables, program, remaining, os.Stdin, os.Stdout, os.Stderr)
 	for _, err := range errs {
 		if ee, ok := err.(interpreter.ErrorExit); ok {
 			os.Exit(ee.Status)
