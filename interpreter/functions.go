@@ -293,7 +293,7 @@ var builtinfuncs = map[string]BuiltinFunction{
 
 		inter.setVariable(id, newval)
 
-		return null(), nil
+		return awknumber(float64(len(newval.array))), nil
 	},
 
 	"sprintf": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
