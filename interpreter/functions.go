@@ -453,7 +453,7 @@ func (inter *interpreter) parseFmtTypes(printtok lexer.Token, s string) (types [
 	}
 
 	tostr := func(v awkvalue) interface{} {
-		return v.string(inter.getOfmt())
+		return inter.toGoString(v)
 	}
 	tofloat := func(v awkvalue) interface{} {
 		return v.float()

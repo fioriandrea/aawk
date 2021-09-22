@@ -242,7 +242,7 @@ func (inter *interpreter) executeSimplePrint(w io.Writer, ps *parser.PrintStat) 
 				return inter.runtimeError(ps.Token(), "cannot print array")
 			}
 			fmt.Fprint(w, sep)
-			fmt.Fprint(w, inter.toGoString(v))
+			fmt.Fprint(w, v.string(inter.getOfmt()))
 			sep = inter.toGoString(inter.builtins[lexer.Ofs])
 		}
 	}
