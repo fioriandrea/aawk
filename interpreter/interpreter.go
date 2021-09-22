@@ -243,7 +243,7 @@ func (inter *interpreter) executeSimplePrint(w io.Writer, ps *parser.PrintStat) 
 			}
 			fmt.Fprint(w, sep)
 			fmt.Fprint(w, inter.toGoString(v))
-			sep = inter.builtins[lexer.Ofs].string(inter.getConvfmt())
+			sep = inter.toGoString(inter.builtins[lexer.Ofs])
 		}
 	}
 	fmt.Fprint(w, inter.toGoString(inter.builtins[lexer.Ors]))
@@ -795,7 +795,7 @@ func (inter *interpreter) evalAssignToLhs(lhs parser.LhsExpr, val awkvalue) (awk
 			return null(), err
 		}
 	case *parser.DollarExpr:
-		i, err := inter.evalDollar(left)
+		i, err := inter.eval(left.Field)
 		if err != nil {
 			return null(), err
 		}
@@ -1034,7 +1034,7 @@ func (inter *interpreter) runNormals() error {
 	// No input file processed (that is, ARGC == 1 or every element of ARGV is "")
 	if inter.currentFile == nil {
 		inter.currentFile = inter.stdinFile
-		inter.runNormals()
+		return inter.runNormals()
 	}
 
 	return nil
