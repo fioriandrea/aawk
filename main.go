@@ -57,19 +57,27 @@ func parseCliArguments() interpreter.CommandLine {
 	args := os.Args[1:]
 outer:
 	for ; i < len(args); i++ {
-		switch args[i] {
-		case "-h":
+		switch {
+		case args[i] == "-h":
 			fallthrough
-		case "--help":
+		case args[i] == "--help":
 			printHelp(os.Stdout)
 			os.Exit(0)
-		case "-F":
+		case strings.HasPrefix(args[i], "-F"):
+			if args[i] != "-F" {
+				args[i] = args[i][2:]
+				i--
+			}
 			if i >= len(args) {
 				expectedArgument(args[i])
 			}
 			i++
 			fs = args[i]
-		case "-f":
+		case strings.HasPrefix(args[i], "-f"):
+			if args[i] != "-f" {
+				args[i] = args[i][2:]
+				i--
+			}
 			if i >= len(args) {
 				expectedArgument(args[i])
 			}
@@ -80,7 +88,11 @@ outer:
 				log.Fatal(err)
 			}
 			programfiles = append(programfiles, file)
-		case "-v":
+		case strings.HasPrefix(args[i], "-v"):
+			if args[i] != "-v" {
+				args[i] = args[i][2:]
+				i--
+			}
 			if i >= len(args) {
 				expectedArgument(args[i])
 			}
