@@ -977,6 +977,7 @@ func (inter *interpreter) run() error {
 	var skipNormals bool
 	var errexit ErrorExit
 
+	inter.currentFile = inter.stdinFile
 	err := inter.runBegins()
 	if ee, ok := err.(ErrorExit); ok {
 		errexit = ee
@@ -986,6 +987,8 @@ func (inter *interpreter) run() error {
 	}
 
 	if !skipNormals {
+		// nil to bootstrap walking through ARGV (zeroth file already at EOF)
+		inter.currentFile = nil
 		err := inter.runNormals()
 		if ee, ok := err.(ErrorExit); ok {
 			errexit = ee
@@ -994,6 +997,7 @@ func (inter *interpreter) run() error {
 		}
 	}
 
+	inter.currentFile = inter.stdinFile
 	err = inter.runEnds()
 	if ee, ok := err.(ErrorExit); ok {
 		errexit = ee
