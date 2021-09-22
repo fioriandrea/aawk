@@ -40,13 +40,16 @@ func expectedArgument(opt string) {
 	parseCliError(fmt.Sprintf("expected parameter for option %s", opt))
 }
 
-func parseCliArguments() (fs string, variables []string, program io.RuneReader, remaining []string) {
+func parseCliArguments() interpreter.CommandLine {
 	if len(os.Args[1:]) == 0 {
 		printHelp(os.Stderr)
 		os.Exit(1)
 	}
 
-	fs = " "
+	fs := " "
+	var variables []string
+	var remaining []string
+	var program io.RuneReader
 
 	var i int
 	var programfiles []io.Reader
@@ -100,13 +103,21 @@ outer:
 	}
 	remaining = args[i:]
 
-	return fs, variables, program, remaining
+	return interpreter.CommandLine{
+		Fs:          fs,
+		Variables:   variables,
+		Program:     program,
+		Programname: os.Args[0],
+		Arguments:   remaining,
+		Stdin:       os.Stdin,
+		Stdout:      os.Stdout,
+		Stderr:      os.Stderr,
+	}
 }
 
 func main() {
-	fs, variables, program, remaining := parseCliArguments()
-
-	errs := interpreter.ExecuteCL(fs, variables, program, os.Args[0], remaining, os.Stdin, os.Stdout, os.Stderr)
+	cl := parseCliArguments()
+	errs := interpreter.ExecuteCL(cl)
 	for _, err := range errs {
 		if ee, ok := err.(interpreter.ErrorExit); ok {
 			os.Exit(ee.Status)

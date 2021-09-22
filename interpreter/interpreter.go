@@ -21,6 +21,17 @@ import (
 	"github.com/fioriandrea/aawk/parser"
 )
 
+type CommandLine struct {
+	Fs          string
+	Variables   []string
+	Program     io.RuneReader
+	Programname string
+	Arguments   []string
+	Stdin       io.Reader
+	Stdout      io.Writer
+	Stderr      io.Writer
+}
+
 type RunParams struct {
 	ResolvedItems    parser.ResolvedItems
 	Fs               string
@@ -41,12 +52,12 @@ func (ee ErrorExit) Error() string {
 	return "exit"
 }
 
-func ExecuteCL(fs string, variables []string, program io.RuneReader, programname string, arguments []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) []error {
-	if _, err := regexp.Compile(fs); err != nil {
+func ExecuteCL(cl CommandLine) []error {
+	if _, err := regexp.Compile(cl.Fs); err != nil {
 		return []error{fmt.Errorf("invalid FS")}
 	}
 
-	lex := lexer.NewLexer(program)
+	lex := lexer.NewLexer(cl.Program)
 	items, errs := parser.Parse(lex)
 	if len(errs) > 0 {
 		return errs
@@ -54,7 +65,7 @@ func ExecuteCL(fs string, variables []string, program io.RuneReader, programname
 
 	globalpreassign := map[int]string{}
 	builtinpreassing := map[int]string{}
-	for _, variable := range variables {
+	for _, variable := range cl.Variables {
 		splits := strings.Split(variable, "=")
 		if i, ok := lexer.Builtinvars[splits[0]]; ok {
 			builtinpreassing[i] = splits[1]
@@ -65,14 +76,14 @@ func ExecuteCL(fs string, variables []string, program io.RuneReader, programname
 
 	return []error{Exec(RunParams{
 		ResolvedItems:    items,
-		Fs:               fs,
-		Arguments:        arguments,
-		Programname:      programname,
+		Fs:               cl.Fs,
+		Arguments:        cl.Arguments,
+		Programname:      cl.Programname,
 		Builtinpreassing: builtinpreassing,
 		Globalpreassign:  globalpreassign,
-		Stdin:            stdin,
-		Stdout:           stdout,
-		Stderr:           stderr,
+		Stdin:            cl.Stdin,
+		Stdout:           cl.Stdout,
+		Stderr:           cl.Stderr,
 	})}
 }
 
@@ -1006,23 +1017,22 @@ func (inter *interpreter) runNormals() error {
 		return nil
 	}
 
-	processed := false
 	for {
 		text, err := inter.nextRecordCurrentFile()
 		if err != nil && err != io.EOF {
 			return err
 		}
-		processed = true
 		if err != nil && err == io.EOF {
 			break
 		}
-		processed = true
 		err = inter.processRecord(text)
 		if err != nil {
 			return err
 		}
 	}
-	if !processed {
+
+	// No input file processed (that is, ARGC == 1 or every element of ARGV is "")
+	if inter.currentFile == nil {
 		inter.currentFile = inter.stdinFile
 		inter.runNormals()
 	}
