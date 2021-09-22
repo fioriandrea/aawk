@@ -554,7 +554,7 @@ func (inter *interpreter) split(s string, e parser.Expr) ([]string, error) {
 	}
 	if re.String() == " " {
 		s = strings.TrimSpace(s)
-		re = regexp.MustCompile(`\s+`)
+		re = inter.spaceregex
 	}
 	return re.Split(s, -1), nil
 }

@@ -130,6 +130,7 @@ type interpreter struct {
 	rangematched map[int]bool
 	fprintfcache map[string][]func(awkvalue) interface{}
 	fsregex      *regexp.Regexp
+	spaceregex   *regexp.Regexp
 }
 
 var errNext = errors.New("next")
@@ -948,12 +949,8 @@ func (inter *interpreter) setVariable(id *parser.IdExpr, v awkvalue) error {
 func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
 	str := v.string(inter.getConvfmt())
 	restr := str
-	if len(restr) <= 1 {
-		if restr == " " {
-			restr = `\s+`
-		} else {
-			restr = "[" + restr + "]"
-		}
+	if len(restr) <= 1 && restr != " " {
+		restr = "[" + restr + "]"
 	}
 	re, err := regexp.Compile(restr)
 	if err != nil {
@@ -1142,6 +1139,7 @@ func (inter *interpreter) initializeBuiltinVariables(params RunParams) {
 	// General
 	inter.builtins[lexer.Convfmt] = awknormalstring("%.6g")
 	inter.builtins[lexer.Fnr] = awknumber(0)
+	inter.spaceregex = regexp.MustCompile(`\s+`)
 	inter.setFs(lexer.Token{}, awknormalstring(params.Fs))
 	inter.builtins[lexer.Nr] = awknumber(0)
 	inter.builtins[lexer.Ofmt] = awknormalstring("%.6g")
