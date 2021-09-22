@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"math/rand"
 	"os"
@@ -1167,6 +1168,9 @@ func (inter *interpreter) initializeBuiltinVariables(params RunParams) {
 
 	// Preassignment from command line
 	for i, str := range params.Builtinpreassing {
+		if _, ok := lexer.Builtinvars[str]; !ok {
+			log.Fatalf("builtin variable '%s' not listed in lexer.Builtinvars", str)
+		}
 		inter.builtins[i] = awknumericstring(str)
 	}
 }
@@ -1181,6 +1185,9 @@ func (inter *interpreter) initializeGlobals(params RunParams) {
 func (inter *interpreter) initializeFunctions(params RunParams) {
 	// Builtins
 	for name, builtin := range builtinfuncs {
+		if _, ok := lexer.Builtinfuncs[name]; !ok {
+			log.Fatalf("function '%s' not listed in lexer.Builtinfuncs", name)
+		}
 		inter.ftable[params.ResolvedItems.Functionindices[name]] = builtin
 	}
 
