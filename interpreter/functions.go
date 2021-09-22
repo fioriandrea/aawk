@@ -298,20 +298,12 @@ var builtinfuncs = map[string]BuiltinFunction{
 			return null(), err
 		}
 
-		var re *regexp.Regexp
-		if args[2] == nil {
-			re = regexp.MustCompile(inter.builtins[lexer.Fs].str)
-		} else {
-			var err error
-			re, err = inter.evalRegex(args[2])
-			if err != nil {
-				return null(), err
-			}
-		}
-
 		newval := awkarray(map[string]awkvalue{})
-
-		for i, split := range re.Split(s, -1) {
+		splits, err := inter.split(s, args[2])
+		if err != nil {
+			return null(), err
+		}
+		for i, split := range splits {
 			newval.array[fmt.Sprintf("%d", i+1)] = awknumericstring(split)
 		}
 
@@ -547,6 +539,24 @@ func (inter *interpreter) fprintf(w io.Writer, print lexer.Token, exprs []parser
 	}
 	fmt.Fprintf(w, formatstr, args...)
 	return nil
+}
+
+func (inter *interpreter) split(s string, e parser.Expr) ([]string, error) {
+	var re *regexp.Regexp
+	var err error
+	if e == nil {
+		re = inter.fsregex
+	} else {
+		re, err = inter.evalRegex(e)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if re.String() == " " {
+		s = strings.TrimSpace(s)
+		re = regexp.MustCompile(`\s+`)
+	}
+	return re.Split(s, -1), nil
 }
 
 func generalsub(inter *interpreter, called lexer.Token, args []parser.Expr, global bool) (awkvalue, error) {

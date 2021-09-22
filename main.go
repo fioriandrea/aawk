@@ -106,7 +106,7 @@ outer:
 func main() {
 	fs, variables, program, remaining := parseCliArguments()
 
-	errs := interpreter.ExecuteCL(fs, variables, program, remaining, os.Stdin, os.Stdout, os.Stderr)
+	errs := interpreter.ExecuteCL(fs, variables, program, os.Args[0], remaining, os.Stdin, os.Stdout, os.Stderr)
 	for _, err := range errs {
 		if ee, ok := err.(interpreter.ErrorExit); ok {
 			os.Exit(ee.Status)

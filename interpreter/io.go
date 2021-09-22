@@ -225,17 +225,42 @@ func (inter *interpreter) nextRecord(r io.RuneReader) (string, error) {
 	return nextRecord(r, inter.getRsStr())
 }
 
-func (inter *interpreter) nextRecordInputFile(r io.RuneReader) (string, error) {
-	s, err := inter.nextRecord(r)
+func (inter *interpreter) nextRecordCurrentFile() (string, error) {
+	s, err := inter.nextRecord(inter.currentFile)
 	if err == nil {
 		inter.builtins[lexer.Nr] = awknumber(inter.builtins[lexer.Nr].float() + 1)
 		inter.builtins[lexer.Fnr] = awknumber(inter.builtins[lexer.Fnr].float() + 1)
+		return s, err
+	} else if err != io.EOF {
+		return "", err
 	}
-	return s, err
+	for {
+		inter.argindex++
+		if inter.argindex > int(inter.builtins[lexer.Argc].float()) {
+			break
+		}
+		fname := inter.toGoString(inter.builtins[lexer.Argv].array[fmt.Sprintf("%d", inter.argindex)])
+		if fname == "" {
+			continue
+		} else if fname == "-" {
+			inter.currentFile = inter.stdinFile
+		} else {
+			file, err := os.Open(fname)
+			if err != nil {
+				return "", err
+			}
+			inter.currentFile = bufio.NewReader(file)
+		}
+		inter.builtins[lexer.Filename] = awknormalstring(fname)
+		return inter.nextRecordCurrentFile()
+	}
+	return s, io.EOF
 }
 
 func nextRecord(reader io.RuneReader, delim string) (string, error) {
-	if delim == "" {
+	if reader == nil {
+		return "", io.EOF
+	} else if delim == "" {
 		return nextMultilineRecord(reader)
 	} else {
 		return nextSimpleRecord(reader, rune(delim[0]))

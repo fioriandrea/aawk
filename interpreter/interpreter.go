@@ -26,6 +26,7 @@ type RunParams struct {
 	Items            parser.Items
 	Fs               string
 	Arguments        []string
+	Programname      string
 	Globalindices    map[string]int
 	Functionindices  map[string]int
 	Builtinpreassing map[int]string
@@ -43,7 +44,7 @@ func (ee ErrorExit) Error() string {
 	return "exit"
 }
 
-func ExecuteCL(fs string, variables []string, program io.RuneReader, arguments []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) []error {
+func ExecuteCL(fs string, variables []string, program io.RuneReader, programname string, arguments []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) []error {
 	if _, err := regexp.Compile(fs); err != nil {
 		return []error{fmt.Errorf("invalid FS")}
 	}
@@ -79,6 +80,7 @@ func ExecuteCL(fs string, variables []string, program io.RuneReader, arguments [
 		Items:            items,
 		Fs:               fs,
 		Arguments:        arguments,
+		Programname:      programname,
 		Globalindices:    globalindices,
 		Functionindices:  functionindices,
 		Builtinpreassing: builtinpreassing,
@@ -117,6 +119,7 @@ type interpreter struct {
 	stderr      io.Writer
 	outprograms outwriters
 	outfiles    outwriters
+	argindex    int
 	currentFile io.RuneReader
 	stdinFile   io.RuneReader
 	inprograms  inreaders
@@ -126,6 +129,7 @@ type interpreter struct {
 	// Caches
 	rangematched map[int]bool
 	fprintfcache map[string][]func(awkvalue) interface{}
+	fsregex      *regexp.Regexp
 }
 
 var errNext = errors.New("next")
@@ -348,7 +352,7 @@ func (inter *interpreter) executeDelete(ds *parser.DeleteStat) error {
 		if err != nil {
 			return err
 		}
-		inter.setVariable(lhs, awkarray(map[string]awkvalue{}))
+		return inter.setVariable(lhs, awkarray(map[string]awkvalue{}))
 	}
 	return nil
 }
@@ -510,21 +514,19 @@ func (inter *interpreter) evalGetline(gl *parser.GetlineExpr) (awkvalue, error) 
 		}
 		filestr = file.string(inter.getConvfmt())
 	}
-	var reader io.RuneReader
-	var fetchRecord func(r io.RuneReader) (string, error)
+	var fetchRecord func() (string, error)
 	switch gl.Op.Type {
 	case lexer.Pipe:
-		reader = inter.inprograms.get(filestr, inter.spawnInProgram)
-		fetchRecord = inter.nextRecord
+		reader := inter.inprograms.get(filestr, inter.spawnInProgram)
+		fetchRecord = func() (string, error) { return inter.nextRecord(reader) }
 	case lexer.Less:
-		reader = inter.infiles.get(filestr, spawnInFile)
-		fetchRecord = inter.nextRecord
+		reader := inter.infiles.get(filestr, spawnInFile)
+		fetchRecord = func() (string, error) { return inter.nextRecord(reader) }
 	default:
-		reader = inter.currentFile
-		fetchRecord = inter.nextRecordInputFile
+		fetchRecord = inter.nextRecordCurrentFile
 	}
 	var record string
-	record, err = fetchRecord(reader)
+	record, err = fetchRecord()
 	retval := awknumber(0)
 	if err == nil {
 		retval.n = 1
@@ -791,7 +793,10 @@ func (inter *interpreter) evalAssignToLhs(lhs parser.LhsExpr, val awkvalue) (awk
 		if inter.getVariable(left).typ == Array {
 			return null(), inter.runtimeError(left.Token(), "cannot use array in scalar context")
 		}
-		inter.setVariable(left, val)
+		err := inter.setVariable(left, val)
+		if err != nil {
+			return null(), err
+		}
 	case *parser.DollarExpr:
 		i, err := inter.evalDollar(left)
 		if err != nil {
@@ -861,10 +866,6 @@ func (inter *interpreter) evalIndex(ind []parser.Expr) (awkvalue, error) {
 	return awknormalstring(strings.Join(indices, inter.toGoString(inter.builtins[lexer.Subsep]))), nil
 }
 
-func (inter *interpreter) processInputRecord(text string) {
-	inter.setField(0, awknormalstring(text))
-}
-
 func (inter *interpreter) getField(i int) awkvalue {
 	if i < 0 || i >= len(inter.fields) {
 		return null()
@@ -892,17 +893,8 @@ func (inter *interpreter) setField(i int, v awkvalue) {
 		str := inter.toGoString(v)
 		inter.fields[0] = awknumericstring(str)
 		inter.fields = inter.fields[0:1]
-		restr := inter.toGoString(inter.builtins[lexer.Fs])
-		if len(restr) == 1 {
-			if restr == " " {
-				restr = "\\s+"
-				str = strings.TrimSpace(str)
-			} else {
-				restr = "[" + restr + "]"
-			}
-		}
-		re := regexp.MustCompile(restr)
-		for _, split := range re.Split(str, -1) {
+		splits, _ := inter.split(str, nil)
+		for _, split := range splits {
 			inter.fields = append(inter.fields, awknumericstring(split))
 		}
 		inter.builtins[lexer.Nf] = awknumber(float64(len(inter.fields) - 1))
@@ -955,11 +947,20 @@ func (inter *interpreter) setVariable(id *parser.IdExpr, v awkvalue) error {
 
 func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
 	str := v.string(inter.getConvfmt())
-	_, err := regexp.Compile(str)
+	restr := str
+	if len(restr) <= 1 {
+		if restr == " " {
+			restr = `\s+`
+		} else {
+			restr = "[" + restr + "]"
+		}
+	}
+	re, err := regexp.Compile(restr)
 	if err != nil {
 		return inter.runtimeError(token, "invalid regular expression")
 	}
 	inter.builtins[lexer.Fs] = awknormalstring(str)
+	inter.fsregex = re
 	return nil
 }
 
@@ -1023,88 +1024,72 @@ func (inter *interpreter) runNormals() error {
 		return nil
 	}
 
-	argv := inter.builtins[lexer.Argv]
 	processed := false
-	for i := 1; i <= int(inter.builtins[lexer.Argc].float()); i++ {
-		filename := inter.toGoString(argv.array[fmt.Sprintf("%d", i)])
-		if i == int(inter.builtins[lexer.Argc].float()) && !processed || filename == "-" {
-			filename = "-"
-			err := inter.processInputFile(filename, inter.stdinFile)
-			if err != nil && err != io.EOF {
-				return err
-			}
-		} else if filename != "" {
-			processed = true
-			file, err := os.Open(filename)
+	for {
+		text, err := inter.nextRecordCurrentFile()
+		if err != nil && err != io.EOF {
+			return err
+		}
+		processed = true
+		if err != nil && err == io.EOF {
+			break
+		}
+		processed = true
+		err = inter.processRecord(text)
+		if err != nil {
+			return err
+		}
+	}
+	if !processed {
+		inter.currentFile = inter.stdinFile
+		inter.runNormals()
+	}
+
+	return nil
+}
+
+func (inter *interpreter) processRecord(record string) error {
+	inter.setField(0, awknormalstring(record))
+	for i, normal := range inter.items.Normals {
+		var toexecute bool
+		switch pat := normal.Pattern.(type) {
+		case *parser.ExprPattern:
+			res, err := inter.eval(pat.Expr)
 			if err != nil {
 				return err
 			}
-			err = inter.processInputFile(file.Name(), bufio.NewReader(file))
-			if err != nil && err != io.EOF {
-				return err
+			toexecute = res.bool()
+		case *parser.RangePattern:
+			if inter.rangematched[i] {
+				res, err := inter.eval(pat.Expr1)
+				if err != nil {
+					return err
+				}
+				if res.bool() {
+					delete(inter.rangematched, i)
+				}
+				toexecute = true
+			} else {
+				res, err := inter.eval(pat.Expr0)
+				if err != nil {
+					return err
+				}
+				if res.bool() {
+					toexecute = true
+					inter.rangematched[i] = true
+				}
 			}
-			err = file.Close()
-			if err != nil {
+		}
+		if toexecute {
+			if err := inter.execute(normal.Action); err != nil {
+				if err == errNext {
+					break
+				}
 				return err
 			}
 		}
 	}
 	return nil
-}
-
-func (inter *interpreter) processInputFile(fname string, f io.RuneReader) error {
-	inter.currentFile = f
-	defer func() { inter.currentFile = inter.stdinFile }()
-
-	inter.builtins[lexer.Filename] = awknormalstring(fname)
-	inter.builtins[lexer.Fnr] = awknumber(0)
-
-	for {
-		text, err := inter.nextRecordInputFile(inter.currentFile)
-		if err != nil {
-			return err
-		}
-		inter.processInputRecord(text)
-		for i, normal := range inter.items.Normals {
-			var toexecute bool
-			switch pat := normal.Pattern.(type) {
-			case *parser.ExprPattern:
-				res, err := inter.eval(pat.Expr)
-				if err != nil {
-					return err
-				}
-				toexecute = res.bool()
-			case *parser.RangePattern:
-				if inter.rangematched[i] {
-					res, err := inter.eval(pat.Expr1)
-					if err != nil {
-						return err
-					}
-					if res.bool() {
-						delete(inter.rangematched, i)
-					}
-					toexecute = true
-				} else {
-					res, err := inter.eval(pat.Expr0)
-					if err != nil {
-						return err
-					}
-					if res.bool() {
-						toexecute = true
-						inter.rangematched[i] = true
-					}
-				}
-			}
-			if toexecute {
-				if err := inter.execute(normal.Action); err != nil {
-					if err == errNext {
-						break
-					}
-					return err
-				}
-			}
-		}
-	}
 }
 
 func (inter *interpreter) runEnds() error {
@@ -1141,11 +1126,11 @@ func (inter *interpreter) initialize(params RunParams) {
 	inter.inprograms = newInReaders()
 	inter.infiles = newInReaders()
 	inter.rng = NewRNG(0)
+	inter.argindex = 0
 	inter.stdin = params.Stdin
 	inter.stdout = params.Stdout
 	inter.stderr = params.Stderr
 	inter.stdinFile = bufio.NewReader(inter.stdin)
-	inter.currentFile = inter.stdinFile
 
 	// Caches
 
@@ -1157,7 +1142,7 @@ func (inter *interpreter) initializeBuiltinVariables(params RunParams) {
 	// General
 	inter.builtins[lexer.Convfmt] = awknormalstring("%.6g")
 	inter.builtins[lexer.Fnr] = awknumber(0)
-	inter.builtins[lexer.Fs] = awknormalstring(params.Fs)
+	inter.setFs(lexer.Token{}, awknormalstring(params.Fs))
 	inter.builtins[lexer.Nr] = awknumber(0)
 	inter.builtins[lexer.Ofmt] = awknormalstring("%.6g")
 	inter.builtins[lexer.Ofs] = awknormalstring(" ")
@@ -1168,7 +1153,7 @@ func (inter *interpreter) initializeBuiltinVariables(params RunParams) {
 	// ARGC and ARGV
 	argc := len(params.Arguments) + 1
 	argv := map[string]awkvalue{}
-	argv["0"] = awknumericstring(os.Args[0])
+	argv["0"] = awknumericstring(params.Programname)
 	for i := 1; i <= argc-1; i++ {
 		argv[fmt.Sprintf("%d", i)] = awknumericstring(params.Arguments[i-1])
 	}
