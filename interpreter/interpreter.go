@@ -34,15 +34,14 @@ type CommandLine struct {
 }
 
 type RunParams struct {
-	ResolvedItems    parser.ResolvedItems
-	Fs               string
-	Arguments        []string
-	Programname      string
-	Builtinpreassing map[int]string
-	Globalpreassign  map[int]string
-	Stdin            io.Reader
-	Stdout           io.Writer
-	Stderr           io.Writer
+	ResolvedItems  parser.ResolvedItems
+	Fs             string
+	Arguments      []string
+	Programname    string
+	Preassignments []string
+	Stdin          io.Reader
+	Stdout         io.Writer
+	Stderr         io.Writer
 }
 
 type ErrorExit struct {
@@ -68,27 +67,15 @@ func ExecuteCL(cl CommandLine) []error {
 		return errs
 	}
 
-	globalpreassign := map[int]string{}
-	builtinpreassing := map[int]string{}
-	for _, variable := range cl.Variables {
-		splits := strings.Split(variable, "=")
-		if i, ok := parser.Builtinvars[splits[0]]; ok {
-			builtinpreassing[i] = splits[1]
-		} else if i, ok := items.Globalindices[splits[0]]; ok {
-			globalpreassign[i] = splits[1]
-		}
-	}
-
 	return []error{Exec(RunParams{
-		ResolvedItems:    items,
-		Fs:               cl.Fs,
-		Arguments:        cl.Arguments,
-		Programname:      cl.Programname,
-		Builtinpreassing: builtinpreassing,
-		Globalpreassign:  globalpreassign,
-		Stdin:            cl.Stdin,
-		Stdout:           cl.Stdout,
-		Stderr:           cl.Stderr,
+		ResolvedItems:  items,
+		Fs:             cl.Fs,
+		Arguments:      cl.Arguments,
+		Programname:    cl.Programname,
+		Preassignments: cl.Variables,
+		Stdin:          cl.Stdin,
+		Stdout:         cl.Stdout,
+		Stderr:         cl.Stderr,
 	})}
 }
 
@@ -101,7 +88,7 @@ func Exec(params RunParams) error {
 
 type interpreter struct {
 	// Program
-	items parser.Items
+	items parser.ResolvedItems
 
 	// Stacks
 	ftable     []Callable
@@ -1103,7 +1090,7 @@ func (inter *interpreter) runEnds() error {
 // Initialization
 
 func (inter *interpreter) initialize(params RunParams) {
-	inter.items = params.ResolvedItems.Items
+	inter.items = params.ResolvedItems
 
 	// Stacks
 
@@ -1113,7 +1100,6 @@ func (inter *interpreter) initialize(params RunParams) {
 	inter.stack = make([]awkvalue, 10000)
 
 	inter.globals = make([]awkvalue, len(params.ResolvedItems.Globalindices))
-	inter.initializeGlobals(params)
 
 	inter.ftable = make([]Callable, len(params.ResolvedItems.Functionindices))
 	inter.initializeFunctions(params)
@@ -1169,15 +1155,20 @@ func (inter *interpreter) initializeBuiltinVariables(params RunParams) {
 	inter.builtins[parser.Environ] = environ
 
 	// Preassignment from command line
-	for i, str := range params.Builtinpreassing {
-		inter.builtins[i] = awknumericstring(str)
+	for _, str := range params.Preassignments {
+		inter.assignCommandLineString(str)
 	}
 }
 
-func (inter *interpreter) initializeGlobals(params RunParams) {
-	// Preassignment from command line
-	for i, str := range params.Globalpreassign {
-		inter.globals[i] = awknumericstring(str)
+func (inter *interpreter) assignCommandLineString(assign string) {
+	if !lexer.CommandLineAssignRegex.MatchString(assign) {
+		return
+	}
+	splits := strings.Split(assign, "=")
+	if i, ok := parser.Builtinvars[splits[0]]; ok {
+		inter.builtins[i] = awknumericstring(splits[1])
+	} else if i, ok := inter.items.Globalindices[splits[0]]; ok {
+		inter.globals[i] = awknumericstring(splits[1])
 	}
 }
 

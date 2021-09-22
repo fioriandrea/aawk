@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/fioriandrea/aawk/lexer"
 	"github.com/fioriandrea/aawk/parser"
 )
 
@@ -241,6 +242,9 @@ func (inter *interpreter) nextRecordCurrentFile() (string, error) {
 		}
 		fname := inter.toGoString(inter.builtins[parser.Argv].array[fmt.Sprintf("%d", inter.argindex)])
 		if fname == "" {
+			continue
+		} else if lexer.CommandLineAssignRegex.MatchString(fname) {
+			inter.assignCommandLineString(fname)
 			continue
 		} else if fname == "-" {
 			inter.currentFile = inter.stdinFile

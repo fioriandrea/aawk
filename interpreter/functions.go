@@ -415,7 +415,7 @@ var builtinfuncs = map[string]BuiltinFunction{
 			iprn = 1
 		}
 
-		return awknumber(float64(oprn + ofn + iprn)), nil
+		return awknumber(float64(oprn | ofn | iprn)), nil
 	},
 
 	"system": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {

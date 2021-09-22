@@ -6,6 +6,8 @@
 
 package lexer
 
+import "regexp"
+
 type TokenType int
 
 const (
@@ -289,3 +291,5 @@ var punctuations = trienode{
 		},
 	},
 }
+
+var CommandLineAssignRegex = regexp.MustCompile(`^[_a-zA-Z0-9]+=.*`)
