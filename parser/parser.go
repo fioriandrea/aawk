@@ -235,7 +235,7 @@ func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, []error) {
 		stat, errs := ps.stat()
 		if len(errs) > 0 {
 			errors = append(errors, errs...)
-			for !ps.checkTerminator() {
+			for !ps.checkBeginStat() {
 				ps.advance()
 			}
 			continue
@@ -288,14 +288,10 @@ func (ps *parser) stat() (Stat, []error) {
 func (ps *parser) blockStat() (BlockStat, []error) {
 	ps.eat(lexer.LeftCurly)
 	ret, errs := ps.statListUntil(lexer.RightCurly)
-	if len(errs) > 0 {
-		return nil, errs
-	}
 	if !ps.eat(lexer.RightCurly) {
-		err := ps.parseErrorAtCurrent("expected '}'")
-		return nil, []error{err}
+		errs = append(errs, ps.parseErrorAtCurrent("expected '}'"))
 	}
-	return ret, nil
+	return ret, errs
 }
 
 func (ps *parser) nextStat() (*NextStat, error) {
@@ -1094,7 +1090,7 @@ func (ps *parser) termExpr() (Expr, error) {
 	if err == nil && !ps.isInPrint() && !ps.indollar && ps.check(lexer.Pipe) {
 		sub, err = ps.pipeGetlineExpr(sub)
 	}
-	if err != nil && !ps.checkAllowedAfterExpr() {
+	if err == nil && !ps.checkAllowedAfterExpr() {
 		sub, err = nil, ps.parseErrorAtCurrent("unexpected token after term")
 	}
 	return sub, err
@@ -1318,8 +1314,12 @@ func (ps *parser) checkBeginLhs() bool {
 	return ps.check(lexer.Dollar, lexer.Identifier)
 }
 
+func (ps *parser) checkBeginStat() bool {
+	return ps.check(lexer.Do, lexer.Print, lexer.Printf, lexer.While, lexer.For, lexer.Function, lexer.Break, lexer.Continue, lexer.Next)
+}
+
 func (ps *parser) checkAllowedAfterExpr() bool {
-	return !ps.check(lexer.Do, lexer.Print, lexer.Printf, lexer.While, lexer.For, lexer.Function, lexer.Break, lexer.Continue, lexer.Next)
+	return !ps.checkBeginStat()
 }
 
 func (ps *parser) checkAllowedAfterConcat() bool {
