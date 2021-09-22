@@ -27,7 +27,7 @@ func newResolver() *resolver {
 	}
 }
 
-func ResolveVariables(items []Item, builtinFunctions []string) (map[string]int, map[string]int, error) {
+func Resolve(items []Item, builtinFunctions []string) (map[string]int, map[string]int, error) {
 	resolver := newResolver()
 
 	for _, builtin := range builtinFunctions {

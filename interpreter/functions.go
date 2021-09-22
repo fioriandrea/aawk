@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -429,15 +428,15 @@ var builtinfuncs = map[string]BuiltinFunction{
 		}
 		cmdstr := inter.toGoString(v)
 
-		return awknumber(float64(System(cmdstr))), nil
+		return awknumber(float64(System(cmdstr, inter.stdin, inter.stdout, inter.stderr))), nil
 	},
 }
 
-func System(cmdstr string) int {
+func System(cmdstr string, stdin io.Reader, stdout io.Writer, stderr io.Writer) int {
 	cmd := exec.Command("sh", "-c", cmdstr)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdin = stdin
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			return exitError.ExitCode()

@@ -91,10 +91,8 @@ func ExecuteCL(cl CommandLine) []error {
 func Exec(params RunParams) error {
 	var inter interpreter
 	inter.initialize(params)
-	inter.cleanup()
-	err := inter.run()
-	inter.cleanup()
-	return err
+	defer inter.cleanup()
+	return inter.run()
 }
 
 type interpreter struct {

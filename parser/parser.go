@@ -36,7 +36,7 @@ func Parse(lex lexer.Lexer) (ResolvedItems, []error) {
 		builtinFunctions = append(builtinFunctions, name)
 	}
 
-	globalindices, functionindices, err := ResolveVariables(items.All, builtinFunctions)
+	globalindices, functionindices, err := Resolve(items.All, builtinFunctions)
 	if err != nil {
 		return ResolvedItems{}, []error{err}
 	}

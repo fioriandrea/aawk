@@ -174,7 +174,7 @@ func (ic incommand) Close() error {
 	return nil
 }
 
-func spawnInProgram(name string, stdin io.Reader, stdout io.Writer) RuneReadCloser {
+func spawnInProgram(name string, stdin io.Reader) RuneReadCloser {
 	cmd := exec.Command("sh", "-c", name)
 	cmd.Stdin = stdin
 	stdoutp, err := cmd.StdoutPipe()
@@ -192,7 +192,7 @@ func spawnInProgram(name string, stdin io.Reader, stdout io.Writer) RuneReadClos
 }
 
 func (inter *interpreter) spawnInProgram(name string) RuneReadCloser {
-	return spawnInProgram(name, inter.stdin, inter.stdout)
+	return spawnInProgram(name, inter.stdin)
 }
 
 type infile struct {
