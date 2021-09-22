@@ -86,44 +86,9 @@ const (
 	TokenCount
 )
 
-const (
-	Argc = iota
-	Argv
-	Convfmt
-	Environ
-	Filename
-	Fnr
-	Fs
-	Nf
-	Nr
-	Ofmt
-	Ofs
-	Ors
-	Rlength
-	Rs
-	Rstart
-	Subsep
-)
-
-var Builtinvars = map[string]int{
-	"ARGC":     Argc,
-	"ARGV":     Argv,
-	"CONVFMT":  Convfmt,
-	"ENVIRON":  Environ,
-	"FILENAME": Filename,
-	"FNR":      Fnr,
-	"FS":       Fs,
-	"NF":       Nf,
-	"NR":       Nr,
-	"OFMT":     Ofmt,
-	"OFS":      Ofs,
-	"ORS":      Ors,
-	"RLENGTH":  Rlength,
-	"RS":       Rs,
-	"RSTART":   Rstart,
-	"SUBSEP":   Subsep,
-}
-
+// these functions are special (parsing-wise) because
+// they can be called with parentheses separated from
+// the name (e.g. cos (x))
 var Builtinfuncs = map[string]bool{
 	"atan2":   true,
 	"close":   true,

@@ -59,7 +59,11 @@ func ExecuteCL(cl CommandLine) []error {
 	}
 
 	lex := lexer.NewLexer(cl.Program)
-	items, errs := parser.Parse(lex)
+	bifunctions := make([]string, 0, len(builtinfuncs))
+	for name := range builtinfuncs {
+		bifunctions = append(bifunctions, name)
+	}
+	items, errs := parser.Parse(lex, bifunctions)
 	if len(errs) > 0 {
 		return errs
 	}
@@ -68,7 +72,7 @@ func ExecuteCL(cl CommandLine) []error {
 	builtinpreassing := map[int]string{}
 	for _, variable := range cl.Variables {
 		splits := strings.Split(variable, "=")
-		if i, ok := lexer.Builtinvars[splits[0]]; ok {
+		if i, ok := parser.Builtinvars[splits[0]]; ok {
 			builtinpreassing[i] = splits[1]
 		} else if i, ok := items.Globalindices[splits[0]]; ok {
 			globalpreassign[i] = splits[1]
@@ -242,10 +246,10 @@ func (inter *interpreter) executeSimplePrint(w io.Writer, ps *parser.PrintStat) 
 			}
 			fmt.Fprint(w, sep)
 			fmt.Fprint(w, v.string(inter.getOfmt()))
-			sep = inter.toGoString(inter.builtins[lexer.Ofs])
+			sep = inter.toGoString(inter.builtins[parser.Ofs])
 		}
 	}
-	fmt.Fprint(w, inter.toGoString(inter.builtins[lexer.Ors]))
+	fmt.Fprint(w, inter.toGoString(inter.builtins[parser.Ors]))
 	return nil
 }
 
@@ -859,7 +863,7 @@ func (inter *interpreter) evalIndex(ind []parser.Expr) (awkvalue, error) {
 		}
 		indices = append(indices, inter.toGoString(res))
 	}
-	return awknormalstring(strings.Join(indices, inter.toGoString(inter.builtins[lexer.Subsep]))), nil
+	return awknormalstring(strings.Join(indices, inter.toGoString(inter.builtins[parser.Subsep]))), nil
 }
 
 func (inter *interpreter) getField(i int) awkvalue {
@@ -872,7 +876,7 @@ func (inter *interpreter) getField(i int) awkvalue {
 func (inter *interpreter) setField(i int, v awkvalue) {
 	if i >= 1 && i < len(inter.fields) {
 		inter.fields[i] = awknumericstring(inter.toGoString(v))
-		ofs := inter.toGoString(inter.builtins[lexer.Ofs])
+		ofs := inter.toGoString(inter.builtins[parser.Ofs])
 		sep := ""
 		var res strings.Builder
 		for _, field := range inter.fields[1:] {
@@ -893,7 +897,7 @@ func (inter *interpreter) setField(i int, v awkvalue) {
 		for _, split := range splits {
 			inter.fields = append(inter.fields, awknumericstring(split))
 		}
-		inter.builtins[lexer.Nf] = awknumber(float64(len(inter.fields) - 1))
+		inter.builtins[parser.Nf] = awknumber(float64(len(inter.fields) - 1))
 	}
 }
 
@@ -933,7 +937,7 @@ func (inter *interpreter) setVariable(id *parser.IdExpr, v awkvalue) error {
 	} else if id.Index < 0 && id.LocalIndex >= 0 {
 		inter.locals[id.LocalIndex] = v
 	} else {
-		if id.BuiltinIndex == lexer.Fs {
+		if id.BuiltinIndex == parser.Fs {
 			return inter.setFs(id.Id, v)
 		}
 		inter.builtins[id.BuiltinIndex] = v
@@ -951,25 +955,25 @@ func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
 	if err != nil {
 		return inter.runtimeError(token, "invalid regular expression")
 	}
-	inter.builtins[lexer.Fs] = awknormalstring(str)
+	inter.builtins[parser.Fs] = awknormalstring(str)
 	inter.fsregex = re
 	return nil
 }
 
 func (inter *interpreter) getOfmt() string {
-	return inter.builtins[lexer.Ofmt].str
+	return inter.builtins[parser.Ofmt].str
 }
 
 func (inter *interpreter) getConvfmt() string {
-	return inter.builtins[lexer.Convfmt].str
+	return inter.builtins[parser.Convfmt].str
 }
 
 func (inter *interpreter) getRsStr() string {
-	return inter.toGoString(inter.builtins[lexer.Rs])
+	return inter.toGoString(inter.builtins[parser.Rs])
 }
 
 func (inter *interpreter) runtimeError(tok lexer.Token, msg string) error {
-	return fmt.Errorf("at line %d (%s): %s", tok.Line, tok.Lexeme, msg)
+	return fmt.Errorf("at line %d (%s): runtime error: %s", tok.Line, tok.Lexeme, msg)
 }
 
 func (inter *interpreter) run() error {
@@ -1103,7 +1107,7 @@ func (inter *interpreter) initialize(params RunParams) {
 
 	// Stacks
 
-	inter.builtins = make([]awkvalue, len(lexer.Builtinvars))
+	inter.builtins = make([]awkvalue, len(parser.Builtinvars))
 	inter.initializeBuiltinVariables(params)
 
 	inter.stack = make([]awkvalue, 10000)
@@ -1135,16 +1139,16 @@ func (inter *interpreter) initialize(params RunParams) {
 
 func (inter *interpreter) initializeBuiltinVariables(params RunParams) {
 	// General
-	inter.builtins[lexer.Convfmt] = awknormalstring("%.6g")
-	inter.builtins[lexer.Fnr] = awknumber(0)
+	inter.builtins[parser.Convfmt] = awknormalstring("%.6g")
+	inter.builtins[parser.Fnr] = awknumber(0)
 	inter.spaceregex = regexp.MustCompile(`\s+`)
 	inter.setFs(lexer.Token{}, awknormalstring(params.Fs))
-	inter.builtins[lexer.Nr] = awknumber(0)
-	inter.builtins[lexer.Ofmt] = awknormalstring("%.6g")
-	inter.builtins[lexer.Ofs] = awknormalstring(" ")
-	inter.builtins[lexer.Ors] = awknormalstring("\n")
-	inter.builtins[lexer.Rs] = awknormalstring("\n")
-	inter.builtins[lexer.Subsep] = awknormalstring("\034")
+	inter.builtins[parser.Nr] = awknumber(0)
+	inter.builtins[parser.Ofmt] = awknormalstring("%.6g")
+	inter.builtins[parser.Ofs] = awknormalstring(" ")
+	inter.builtins[parser.Ors] = awknormalstring("\n")
+	inter.builtins[parser.Rs] = awknormalstring("\n")
+	inter.builtins[parser.Subsep] = awknormalstring("\034")
 
 	// ARGC and ARGV
 	argc := len(params.Arguments) + 1
@@ -1153,8 +1157,8 @@ func (inter *interpreter) initializeBuiltinVariables(params RunParams) {
 	for i := 1; i <= argc-1; i++ {
 		argv[fmt.Sprintf("%d", i)] = awknumericstring(params.Arguments[i-1])
 	}
-	inter.builtins[lexer.Argc] = awknumber(float64(argc))
-	inter.builtins[lexer.Argv] = awkarray(argv)
+	inter.builtins[parser.Argc] = awknumber(float64(argc))
+	inter.builtins[parser.Argv] = awkarray(argv)
 
 	// ENVIRON
 	environ := awkarray(map[string]awkvalue{})
@@ -1162,13 +1166,10 @@ func (inter *interpreter) initializeBuiltinVariables(params RunParams) {
 		splits := strings.Split(envpair, "=")
 		environ.array[splits[0]] = awknumericstring(splits[1])
 	}
-	inter.builtins[lexer.Environ] = environ
+	inter.builtins[parser.Environ] = environ
 
 	// Preassignment from command line
 	for i, str := range params.Builtinpreassing {
-		if _, ok := lexer.Builtinvars[str]; !ok {
-			log.Fatalf("builtin variable '%s' not listed in lexer.Builtinvars", str)
-		}
 		inter.builtins[i] = awknumericstring(str)
 	}
 }

@@ -25,15 +25,10 @@ type parser struct {
 	infunction bool
 }
 
-func Parse(lex lexer.Lexer) (ResolvedItems, []error) {
+func Parse(lex lexer.Lexer, builtinFunctions []string) (ResolvedItems, []error) {
 	items, errs := GetItems(lex)
 	if errs != nil {
 		return ResolvedItems{}, errs
-	}
-
-	builtinFunctions := make([]string, 0, len(lexer.Builtinfuncs))
-	for name := range lexer.Builtinfuncs {
-		builtinFunctions = append(builtinFunctions, name)
 	}
 
 	globalindices, functionindices, err := Resolve(items.All, builtinFunctions)
@@ -118,9 +113,6 @@ func (ps *parser) functionItem() (*FunctionDef, []error) {
 	}
 	args := make([]lexer.Token, 0)
 	for ps.eat(lexer.Identifier) {
-		if _, ok := lexer.Builtinvars[ps.previous.Lexeme]; ok {
-			return nil, []error{ps.parseErrorAt(ps.previous, "cannot use built in variable as function parameter")}
-		}
 		args = append(args, ps.previous)
 		if !ps.eat(lexer.Comma) {
 			break

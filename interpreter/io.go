@@ -15,7 +15,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/fioriandrea/aawk/lexer"
+	"github.com/fioriandrea/aawk/parser"
 )
 
 type RuneReadCloser interface {
@@ -228,18 +228,18 @@ func (inter *interpreter) nextRecord(r io.RuneReader) (string, error) {
 func (inter *interpreter) nextRecordCurrentFile() (string, error) {
 	s, err := inter.nextRecord(inter.currentFile)
 	if err == nil {
-		inter.builtins[lexer.Nr] = awknumber(inter.builtins[lexer.Nr].float() + 1)
-		inter.builtins[lexer.Fnr] = awknumber(inter.builtins[lexer.Fnr].float() + 1)
+		inter.builtins[parser.Nr] = awknumber(inter.builtins[parser.Nr].float() + 1)
+		inter.builtins[parser.Fnr] = awknumber(inter.builtins[parser.Fnr].float() + 1)
 		return s, err
 	} else if err != io.EOF {
 		return "", err
 	}
 	for {
 		inter.argindex++
-		if inter.argindex > int(inter.builtins[lexer.Argc].float()) {
+		if inter.argindex > int(inter.builtins[parser.Argc].float()) {
 			break
 		}
-		fname := inter.toGoString(inter.builtins[lexer.Argv].array[fmt.Sprintf("%d", inter.argindex)])
+		fname := inter.toGoString(inter.builtins[parser.Argv].array[fmt.Sprintf("%d", inter.argindex)])
 		if fname == "" {
 			continue
 		} else if fname == "-" {
@@ -251,7 +251,7 @@ func (inter *interpreter) nextRecordCurrentFile() (string, error) {
 			}
 			inter.currentFile = bufio.NewReader(file)
 		}
-		inter.builtins[lexer.Filename] = awknormalstring(fname)
+		inter.builtins[parser.Filename] = awknormalstring(fname)
 		return inter.nextRecordCurrentFile()
 	}
 	return s, io.EOF

@@ -266,8 +266,8 @@ var builtinfuncs = map[string]BuiltinFunction{
 		}
 		rstart := float64(loc[0] + 1)
 		rlength := float64(loc[1] - loc[0])
-		inter.builtins[lexer.Rstart] = awknumber(rstart)
-		inter.builtins[lexer.Rlength] = awknumber(rlength)
+		inter.builtins[parser.Rstart] = awknumber(rstart)
+		inter.builtins[parser.Rlength] = awknumber(rlength)
 		return awknumber(rstart), nil
 	},
 

@@ -116,10 +116,10 @@ type LhsExpr interface {
 
 type IdExpr struct {
 	Id            lexer.Token
-	Index         int
-	LocalIndex    int
-	FunctionIndex int
-	BuiltinIndex  int
+	Index         int // Index in the global namespace stack
+	LocalIndex    int // Index in a function-local namespace stack
+	FunctionIndex int // Index in the function table (if Id is a function)
+	BuiltinIndex  int // Index in the builtin variable table (if Id is a builtin variable)
 	LhsExpr
 }
 

@@ -14,6 +14,44 @@ import (
 	"github.com/fioriandrea/aawk/lexer"
 )
 
+const (
+	Argc = iota
+	Argv
+	Convfmt
+	Environ
+	Filename
+	Fnr
+	Fs
+	Nf
+	Nr
+	Ofmt
+	Ofs
+	Ors
+	Rlength
+	Rs
+	Rstart
+	Subsep
+)
+
+var Builtinvars = map[string]int{
+	"ARGC":     Argc,
+	"ARGV":     Argv,
+	"CONVFMT":  Convfmt,
+	"ENVIRON":  Environ,
+	"FILENAME": Filename,
+	"FNR":      Fnr,
+	"FS":       Fs,
+	"NF":       Nf,
+	"NR":       Nr,
+	"OFMT":     Ofmt,
+	"OFS":      Ofs,
+	"ORS":      Ors,
+	"RLENGTH":  Rlength,
+	"RS":       Rs,
+	"RSTART":   Rstart,
+	"SUBSEP":   Subsep,
+}
+
 type resolver struct {
 	indices         map[string]int
 	localindices    map[string]int
@@ -27,6 +65,7 @@ func newResolver() *resolver {
 	}
 }
 
+// Take builtins defined somewhere else (that is, not in the source code)
 func Resolve(items []Item, builtinFunctions []string) (map[string]int, map[string]int, error) {
 	resolver := newResolver()
 
@@ -39,9 +78,6 @@ func Resolve(items []Item, builtinFunctions []string) (map[string]int, map[strin
 		case *FunctionDef:
 			if _, ok := resolver.functionindices[it.Name.Lexeme]; ok {
 				return nil, nil, resolver.resolveError(it.Name, "function already defined")
-			}
-			if _, ok := lexer.Builtinvars[it.Name.Lexeme]; ok {
-				return nil, nil, resolver.resolveError(it.Name, "cannot declare built-in variable as function")
 			}
 			resolver.functionindices[it.Name.Lexeme] = len(resolver.functionindices)
 		}
@@ -76,7 +112,9 @@ func (res *resolver) functionDef(fd *FunctionDef) error {
 	res.localindices = map[string]int{}
 	defer func() { res.localindices = nil }()
 	for i, arg := range fd.Args {
-		arg := arg
+		if _, ok := Builtinvars[arg.Lexeme]; ok {
+			return res.resolveError(arg, "cannot call a function argument the same as a built-in variable")
+		}
 		res.localindices[arg.Lexeme] = i
 	}
 
@@ -367,7 +405,7 @@ func (res *resolver) idExpr(e *IdExpr) error {
 		return res.resolveError(e.Token(), "cannot use function in variable context")
 	}
 
-	if i, ok := lexer.Builtinvars[e.Id.Lexeme]; ok {
+	if i, ok := Builtinvars[e.Id.Lexeme]; ok {
 		e.LocalIndex = -1
 		e.Index = -1
 		e.FunctionIndex = -1
@@ -509,5 +547,5 @@ func (res *resolver) exprs(es []Expr) error {
 }
 
 func (res *resolver) resolveError(tok lexer.Token, msg string) error {
-	return fmt.Errorf("at %d (%s): %s", tok.Line, tok.Lexeme, msg)
+	return fmt.Errorf("at line %d (%s): resolve error: %s", tok.Line, tok.Lexeme, msg)
 }
