@@ -19,16 +19,13 @@ import (
 
 	"github.com/fioriandrea/aawk/lexer"
 	"github.com/fioriandrea/aawk/parser"
-	"github.com/fioriandrea/aawk/resolver"
 )
 
 type RunParams struct {
-	Items            parser.Items
+	ResolvedItems    parser.ResolvedItems
 	Fs               string
 	Arguments        []string
 	Programname      string
-	Globalindices    map[string]int
-	Functionindices  map[string]int
 	Builtinpreassing map[int]string
 	Globalpreassign  map[int]string
 	Stdin            io.Reader
@@ -50,19 +47,9 @@ func ExecuteCL(fs string, variables []string, program io.RuneReader, programname
 	}
 
 	lex := lexer.NewLexer(program)
-	items, errs := parser.GetItems(lex)
-	if errs != nil {
+	items, errs := parser.Parse(lex)
+	if len(errs) > 0 {
 		return errs
-	}
-
-	builtinFunctions := make([]string, 0, len(lexer.Builtinfuncs))
-	for name := range lexer.Builtinfuncs {
-		builtinFunctions = append(builtinFunctions, name)
-	}
-
-	globalindices, functionindices, err := resolver.ResolveVariables(items.All, builtinFunctions)
-	if err != nil {
-		return []error{err}
 	}
 
 	globalpreassign := map[int]string{}
@@ -71,18 +58,16 @@ func ExecuteCL(fs string, variables []string, program io.RuneReader, programname
 		splits := strings.Split(variable, "=")
 		if i, ok := lexer.Builtinvars[splits[0]]; ok {
 			builtinpreassing[i] = splits[1]
-		} else if i, ok := globalindices[splits[0]]; ok {
+		} else if i, ok := items.Globalindices[splits[0]]; ok {
 			globalpreassign[i] = splits[1]
 		}
 	}
 
 	return []error{Exec(RunParams{
-		Items:            items,
+		ResolvedItems:    items,
 		Fs:               fs,
 		Arguments:        arguments,
 		Programname:      programname,
-		Globalindices:    globalindices,
-		Functionindices:  functionindices,
 		Builtinpreassing: builtinpreassing,
 		Globalpreassign:  globalpreassign,
 		Stdin:            stdin,
@@ -1101,7 +1086,7 @@ func (inter *interpreter) runEnds() error {
 // Initialization
 
 func (inter *interpreter) initialize(params RunParams) {
-	inter.items = params.Items
+	inter.items = params.ResolvedItems.Items
 
 	// Stacks
 
@@ -1110,10 +1095,10 @@ func (inter *interpreter) initialize(params RunParams) {
 
 	inter.stack = make([]awkvalue, 10000)
 
-	inter.globals = make([]awkvalue, len(params.Globalindices))
+	inter.globals = make([]awkvalue, len(params.ResolvedItems.Globalindices))
 	inter.initializeGlobals(params)
 
-	inter.ftable = make([]Callable, len(params.Functionindices))
+	inter.ftable = make([]Callable, len(params.ResolvedItems.Functionindices))
 	inter.initializeFunctions(params)
 
 	// IO structures
@@ -1182,12 +1167,12 @@ func (inter *interpreter) initializeGlobals(params RunParams) {
 func (inter *interpreter) initializeFunctions(params RunParams) {
 	// Builtins
 	for name, builtin := range builtinfuncs {
-		inter.ftable[params.Functionindices[name]] = builtin
+		inter.ftable[params.ResolvedItems.Functionindices[name]] = builtin
 	}
 
 	// User defined
-	for _, fi := range params.Items.Functions {
-		inter.ftable[params.Functionindices[fi.Name.Lexeme]] = &UserFunction{
+	for _, fi := range params.ResolvedItems.Functions {
+		inter.ftable[params.ResolvedItems.Functionindices[fi.Name.Lexeme]] = &UserFunction{
 			Arity: len(fi.Args),
 			Body:  fi.Body,
 		}

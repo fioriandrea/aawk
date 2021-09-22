@@ -4,7 +4,7 @@
  * Licensed under GPLv2, see file LICENSE in this source tree.
  */
 
-package resolver
+package parser
 
 import (
 	"fmt"
@@ -12,7 +12,6 @@ import (
 	"strconv"
 
 	"github.com/fioriandrea/aawk/lexer"
-	"github.com/fioriandrea/aawk/parser"
 )
 
 type resolver struct {
@@ -28,7 +27,7 @@ func newResolver() *resolver {
 	}
 }
 
-func ResolveVariables(items []parser.Item, builtinFunctions []string) (map[string]int, map[string]int, error) {
+func ResolveVariables(items []Item, builtinFunctions []string) (map[string]int, map[string]int, error) {
 	resolver := newResolver()
 
 	for _, builtin := range builtinFunctions {
@@ -37,7 +36,7 @@ func ResolveVariables(items []parser.Item, builtinFunctions []string) (map[strin
 
 	for _, item := range items {
 		switch it := item.(type) {
-		case *parser.FunctionDef:
+		case *FunctionDef:
 			if _, ok := resolver.functionindices[it.Name.Lexeme]; ok {
 				return nil, nil, resolver.resolveError(it.Name, "function already defined")
 			}
@@ -52,17 +51,17 @@ func ResolveVariables(items []parser.Item, builtinFunctions []string) (map[strin
 	return resolver.indices, resolver.functionindices, err
 }
 
-func (res *resolver) items(items []parser.Item) error {
+func (res *resolver) items(items []Item) error {
 	var err error
 
 	for _, item := range items {
 		switch it := item.(type) {
-		case *parser.FunctionDef:
+		case *FunctionDef:
 			err = res.functionDef(it)
 			if err != nil {
 				return err
 			}
-		case *parser.PatternAction:
+		case *PatternAction:
 			err = res.patternAction(it)
 			if err != nil {
 				return err
@@ -72,7 +71,7 @@ func (res *resolver) items(items []parser.Item) error {
 	return nil
 }
 
-func (res *resolver) functionDef(fd *parser.FunctionDef) error {
+func (res *resolver) functionDef(fd *FunctionDef) error {
 	var err error
 	res.localindices = map[string]int{}
 	defer func() { res.localindices = nil }()
@@ -85,15 +84,15 @@ func (res *resolver) functionDef(fd *parser.FunctionDef) error {
 	return err
 }
 
-func (res *resolver) patternAction(pa *parser.PatternAction) error {
+func (res *resolver) patternAction(pa *PatternAction) error {
 	var err error
 	switch patt := pa.Pattern.(type) {
-	case *parser.ExprPattern:
+	case *ExprPattern:
 		err = res.exprPattern(patt)
 		if err != nil {
 			return err
 		}
-	case *parser.RangePattern:
+	case *RangePattern:
 		err = res.rangePattern(patt)
 		if err != nil {
 			return err
@@ -103,12 +102,12 @@ func (res *resolver) patternAction(pa *parser.PatternAction) error {
 	return err
 }
 
-func (res *resolver) exprPattern(ep *parser.ExprPattern) error {
+func (res *resolver) exprPattern(ep *ExprPattern) error {
 	err := res.expr(ep.Expr)
 	return err
 }
 
-func (res *resolver) rangePattern(rp *parser.RangePattern) error {
+func (res *resolver) rangePattern(rp *RangePattern) error {
 	var err error
 	err = res.expr(rp.Expr0)
 	if err != nil {
@@ -121,7 +120,7 @@ func (res *resolver) rangePattern(rp *parser.RangePattern) error {
 	return nil
 }
 
-func (res *resolver) blockStat(bs parser.BlockStat) error {
+func (res *resolver) blockStat(bs BlockStat) error {
 	var err error
 	for i := 0; i < len(bs); i++ {
 		err = res.stat(bs[i])
@@ -132,30 +131,30 @@ func (res *resolver) blockStat(bs parser.BlockStat) error {
 	return nil
 }
 
-func (res *resolver) stat(s parser.Stat) error {
+func (res *resolver) stat(s Stat) error {
 	switch ss := s.(type) {
-	case *parser.IfStat:
+	case *IfStat:
 		return res.ifStat(ss)
-	case *parser.ForStat:
+	case *ForStat:
 		return res.forStat(ss)
-	case *parser.ForEachStat:
+	case *ForEachStat:
 		return res.forEachStat(ss)
-	case parser.BlockStat:
+	case BlockStat:
 		return res.blockStat(ss)
-	case *parser.ReturnStat:
+	case *ReturnStat:
 		return res.returnStat(ss)
-	case *parser.PrintStat:
+	case *PrintStat:
 		return res.printStat(ss)
-	case *parser.ExprStat:
+	case *ExprStat:
 		return res.exprStat(ss)
-	case *parser.ExitStat:
+	case *ExitStat:
 		return res.exitStat(ss)
-	case *parser.DeleteStat:
+	case *DeleteStat:
 		return res.deleteStat(ss)
 	}
 	return nil
 }
-func (res *resolver) ifStat(is *parser.IfStat) error {
+func (res *resolver) ifStat(is *IfStat) error {
 	var err error
 	err = res.expr(is.Cond)
 	if err != nil {
@@ -172,7 +171,7 @@ func (res *resolver) ifStat(is *parser.IfStat) error {
 	return nil
 }
 
-func (res *resolver) forStat(fs *parser.ForStat) error {
+func (res *resolver) forStat(fs *ForStat) error {
 	var err error
 	err = res.stat(fs.Init)
 	if err != nil {
@@ -193,7 +192,7 @@ func (res *resolver) forStat(fs *parser.ForStat) error {
 	return nil
 }
 
-func (res *resolver) forEachStat(fe *parser.ForEachStat) error {
+func (res *resolver) forEachStat(fe *ForEachStat) error {
 	var err error
 	err = res.idExpr(fe.Id)
 	if err != nil {
@@ -210,11 +209,11 @@ func (res *resolver) forEachStat(fe *parser.ForEachStat) error {
 	return nil
 }
 
-func (res *resolver) returnStat(rs *parser.ReturnStat) error {
+func (res *resolver) returnStat(rs *ReturnStat) error {
 	return res.expr(rs.ReturnVal)
 }
 
-func (res *resolver) printStat(ps *parser.PrintStat) error {
+func (res *resolver) printStat(ps *PrintStat) error {
 	var err error
 	err = res.exprs(ps.Exprs)
 	if err != nil {
@@ -227,65 +226,65 @@ func (res *resolver) printStat(ps *parser.PrintStat) error {
 	return nil
 }
 
-func (res *resolver) exprStat(es *parser.ExprStat) error {
+func (res *resolver) exprStat(es *ExprStat) error {
 	return res.expr(es.Expr)
 }
 
-func (res *resolver) exitStat(ex *parser.ExitStat) error {
+func (res *resolver) exitStat(ex *ExitStat) error {
 	err := res.expr(ex.Status)
 	return err
 }
 
-func (res *resolver) deleteStat(ds *parser.DeleteStat) error {
+func (res *resolver) deleteStat(ds *DeleteStat) error {
 	err := res.lhsExpr(ds.Lhs)
 	return err
 }
 
-func (res *resolver) expr(ex parser.Expr) error {
+func (res *resolver) expr(ex Expr) error {
 	switch e := ex.(type) {
-	case *parser.BinaryExpr:
+	case *BinaryExpr:
 		return res.binaryExpr(e)
-	case *parser.BinaryBoolExpr:
+	case *BinaryBoolExpr:
 		return res.binaryBoolExpr(e)
-	case *parser.UnaryExpr:
+	case *UnaryExpr:
 		return res.unaryExpr(e)
-	case *parser.MatchExpr:
+	case *MatchExpr:
 		return res.matchExpr(e)
-	case *parser.AssignExpr:
+	case *AssignExpr:
 		return res.assignExpr(e)
-	case *parser.IdExpr:
+	case *IdExpr:
 		return res.idExpr(e)
-	case *parser.IndexingExpr:
+	case *IndexingExpr:
 		return res.indexingExpr(e)
-	case *parser.DollarExpr:
+	case *DollarExpr:
 		return res.dollarExpr(e)
-	case *parser.IncrementExpr:
+	case *IncrementExpr:
 		return res.incrementExpr(e)
-	case *parser.PreIncrementExpr:
+	case *PreIncrementExpr:
 		return res.preIncrementExpr(e)
-	case *parser.PostIncrementExpr:
+	case *PostIncrementExpr:
 		return res.postIncrementExpr(e)
-	case *parser.TernaryExpr:
+	case *TernaryExpr:
 		return res.ternaryExpr(e)
-	case *parser.GetlineExpr:
+	case *GetlineExpr:
 		return res.getlineExpr(e)
-	case *parser.CallExpr:
+	case *CallExpr:
 		return res.callExpr(e)
-	case *parser.InExpr:
+	case *InExpr:
 		return res.inExpr(e)
-	case parser.ExprList:
+	case ExprList:
 		return res.exprList(e)
-	case *parser.NumberExpr:
+	case *NumberExpr:
 		return res.numberExpr(e)
-	case *parser.LengthExpr:
+	case *LengthExpr:
 		return res.lengthExpr(e)
-	case *parser.RegexExpr:
+	case *RegexExpr:
 		return res.regexExpr(e)
 	}
 	return nil
 }
 
-func (res *resolver) binaryExpr(e *parser.BinaryExpr) error {
+func (res *resolver) binaryExpr(e *BinaryExpr) error {
 	var err error
 	err = res.expr(e.Left)
 	if err != nil {
@@ -298,7 +297,7 @@ func (res *resolver) binaryExpr(e *parser.BinaryExpr) error {
 	return nil
 }
 
-func (res *resolver) binaryBoolExpr(e *parser.BinaryBoolExpr) error {
+func (res *resolver) binaryBoolExpr(e *BinaryBoolExpr) error {
 	var err error
 	err = res.expr(e.Left)
 	if err != nil {
@@ -311,12 +310,12 @@ func (res *resolver) binaryBoolExpr(e *parser.BinaryBoolExpr) error {
 	return nil
 }
 
-func (res *resolver) unaryExpr(e *parser.UnaryExpr) error {
+func (res *resolver) unaryExpr(e *UnaryExpr) error {
 	err := res.expr(e.Right)
 	return err
 }
 
-func (res *resolver) matchExpr(e *parser.MatchExpr) error {
+func (res *resolver) matchExpr(e *MatchExpr) error {
 	var err error
 	err = res.expr(e.Left)
 	if err != nil {
@@ -329,7 +328,7 @@ func (res *resolver) matchExpr(e *parser.MatchExpr) error {
 	return nil
 }
 
-func (res *resolver) assignExpr(e *parser.AssignExpr) error {
+func (res *resolver) assignExpr(e *AssignExpr) error {
 	var err error
 	err = res.lhsExpr(e.Left)
 	if err != nil {
@@ -342,19 +341,19 @@ func (res *resolver) assignExpr(e *parser.AssignExpr) error {
 	return nil
 }
 
-func (res *resolver) lhsExpr(e parser.LhsExpr) error {
+func (res *resolver) lhsExpr(e LhsExpr) error {
 	switch v := e.(type) {
-	case *parser.DollarExpr:
+	case *DollarExpr:
 		return res.dollarExpr(v)
-	case *parser.IdExpr:
+	case *IdExpr:
 		return res.idExpr(v)
-	case *parser.IndexingExpr:
+	case *IndexingExpr:
 		return res.indexingExpr(v)
 	}
 	return nil
 }
 
-func (res *resolver) idExpr(e *parser.IdExpr) error {
+func (res *resolver) idExpr(e *IdExpr) error {
 	li, liok := res.localindices[e.Id.Lexeme]
 	if liok {
 		e.LocalIndex = li
@@ -391,7 +390,7 @@ func (res *resolver) idExpr(e *parser.IdExpr) error {
 	return nil
 }
 
-func (res *resolver) indexingExpr(e *parser.IndexingExpr) error {
+func (res *resolver) indexingExpr(e *IndexingExpr) error {
 	var err error
 	err = res.idExpr(e.Id)
 	if err != nil {
@@ -404,25 +403,25 @@ func (res *resolver) indexingExpr(e *parser.IndexingExpr) error {
 	return nil
 }
 
-func (res *resolver) dollarExpr(e *parser.DollarExpr) error {
+func (res *resolver) dollarExpr(e *DollarExpr) error {
 	err := res.expr(e.Field)
 	return err
 }
 
-func (res *resolver) incrementExpr(e *parser.IncrementExpr) error {
+func (res *resolver) incrementExpr(e *IncrementExpr) error {
 	err := res.lhsExpr(e.Lhs)
 	return err
 }
 
-func (res *resolver) preIncrementExpr(e *parser.PreIncrementExpr) error {
+func (res *resolver) preIncrementExpr(e *PreIncrementExpr) error {
 	return res.incrementExpr(e.IncrementExpr)
 }
 
-func (res *resolver) postIncrementExpr(e *parser.PostIncrementExpr) error {
+func (res *resolver) postIncrementExpr(e *PostIncrementExpr) error {
 	return res.incrementExpr(e.IncrementExpr)
 }
 
-func (res *resolver) ternaryExpr(e *parser.TernaryExpr) error {
+func (res *resolver) ternaryExpr(e *TernaryExpr) error {
 	var err error
 	err = res.expr(e.Cond)
 	if err != nil {
@@ -439,7 +438,7 @@ func (res *resolver) ternaryExpr(e *parser.TernaryExpr) error {
 	return nil
 }
 
-func (res *resolver) getlineExpr(e *parser.GetlineExpr) error {
+func (res *resolver) getlineExpr(e *GetlineExpr) error {
 	var err error
 	err = res.lhsExpr(e.Variable)
 	if err != nil {
@@ -452,7 +451,7 @@ func (res *resolver) getlineExpr(e *parser.GetlineExpr) error {
 	return nil
 }
 
-func (res *resolver) callExpr(e *parser.CallExpr) error {
+func (res *resolver) callExpr(e *CallExpr) error {
 	var err error
 	if i, ok := res.functionindices[e.Called.Id.Lexeme]; ok {
 		e.Called.FunctionIndex = i
@@ -465,7 +464,7 @@ func (res *resolver) callExpr(e *parser.CallExpr) error {
 	return err
 }
 
-func (res *resolver) inExpr(e *parser.InExpr) error {
+func (res *resolver) inExpr(e *InExpr) error {
 	var err error
 	err = res.expr(e.Left)
 	if err != nil {
@@ -478,27 +477,27 @@ func (res *resolver) inExpr(e *parser.InExpr) error {
 	return nil
 }
 
-func (res *resolver) exprList(e parser.ExprList) error {
+func (res *resolver) exprList(e ExprList) error {
 	return res.exprs(e)
 }
 
-func (res *resolver) numberExpr(e *parser.NumberExpr) error {
+func (res *resolver) numberExpr(e *NumberExpr) error {
 	v, _ := strconv.ParseFloat(e.Num.Lexeme, 64)
 	e.NumVal = v
 	return nil
 }
 
-func (res *resolver) lengthExpr(e *parser.LengthExpr) error {
+func (res *resolver) lengthExpr(e *LengthExpr) error {
 	return res.expr(e.Arg)
 }
 
-func (res *resolver) regexExpr(e *parser.RegexExpr) error {
+func (res *resolver) regexExpr(e *RegexExpr) error {
 	c := regexp.MustCompile(e.Regex.Lexeme)
 	e.Compiled = c
 	return nil
 }
 
-func (res *resolver) exprs(es []parser.Expr) error {
+func (res *resolver) exprs(es []Expr) error {
 	var err error
 	for i := 0; i < len(es); i++ {
 		err = res.expr(es[i])

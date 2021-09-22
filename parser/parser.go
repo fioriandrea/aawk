@@ -25,6 +25,28 @@ type parser struct {
 	infunction bool
 }
 
+func Parse(lex lexer.Lexer) (ResolvedItems, []error) {
+	items, errs := GetItems(lex)
+	if errs != nil {
+		return ResolvedItems{}, errs
+	}
+
+	builtinFunctions := make([]string, 0, len(lexer.Builtinfuncs))
+	for name := range lexer.Builtinfuncs {
+		builtinFunctions = append(builtinFunctions, name)
+	}
+
+	globalindices, functionindices, err := ResolveVariables(items.All, builtinFunctions)
+	if err != nil {
+		return ResolvedItems{}, []error{err}
+	}
+	return ResolvedItems{
+		Items:           items,
+		Globalindices:   globalindices,
+		Functionindices: functionindices,
+	}, nil
+}
+
 func GetItems(lex lexer.Lexer) (Items, []error) {
 	ps := parser{
 		lexer: lex,

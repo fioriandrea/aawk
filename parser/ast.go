@@ -428,3 +428,9 @@ type Items struct {
 	Ends      []*PatternAction
 	All       []Item
 }
+
+type ResolvedItems struct {
+	Items
+	Globalindices   map[string]int
+	Functionindices map[string]int
+}
