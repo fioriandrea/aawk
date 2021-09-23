@@ -238,6 +238,11 @@ func (inter *interpreter) nextRecordCurrentFile() (string, error) {
 	for {
 		inter.argindex++
 		if inter.argindex > int(inter.builtins[parser.Argc].float()) {
+			// No file has ever been processed, so start processing stdin
+			if inter.currentFile == nil {
+				inter.currentFile = inter.stdinFile
+				return inter.nextRecordCurrentFile()
+			}
 			break
 		}
 		fname := inter.toGoString(inter.builtins[parser.Argv].array[fmt.Sprintf("%d", inter.argindex)])

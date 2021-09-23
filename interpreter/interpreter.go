@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"math/rand"
 	"os"
@@ -58,11 +57,8 @@ func ExecuteCL(cl CommandLine) []error {
 	}
 
 	lex := lexer.NewLexer(cl.Program)
-	bifunctions := make([]string, 0, len(builtinfuncs))
-	for name := range builtinfuncs {
-		bifunctions = append(bifunctions, name)
-	}
-	items, errs := parser.Parse(lex, bifunctions)
+
+	items, errs := parser.Parse(lex, nil)
 	if len(errs) > 0 {
 		return errs
 	}
@@ -91,7 +87,7 @@ type interpreter struct {
 	items parser.ResolvedItems
 
 	// Stacks
-	ftable     []Callable
+	ftable     []*parser.FunctionDef
 	builtins   []awkvalue
 	fields     []awkvalue
 	globals    []awkvalue
@@ -548,11 +544,6 @@ func (inter *interpreter) evalLength(le *parser.LengthExpr) (awkvalue, error) {
 	return awknumber(float64(len([]rune(str)))), nil
 }
 
-func (inter *interpreter) evalCall(ce *parser.CallExpr) (awkvalue, error) {
-	f := inter.ftable[ce.Called.FunctionIndex]
-	return f.Call(inter, ce.Called.Id, ce.Args)
-}
-
 func (inter *interpreter) evalIn(ine *parser.InExpr) (awkvalue, error) {
 	var elem awkvalue
 	var err error
@@ -596,7 +587,7 @@ func (inter *interpreter) evalRegexExpr(re *parser.RegexExpr) (awkvalue, error) 
 		},
 		Op: lexer.Token{
 			Lexeme: "~",
-			Type:   lexer.Match,
+			Type:   lexer.Tilde,
 			Line:   re.Regex.Line,
 		},
 		Right: re,
@@ -614,7 +605,7 @@ func (inter *interpreter) evalMatchExpr(me *parser.MatchExpr) (awkvalue, error) 
 		return null(), err
 	}
 	var negate bool
-	if me.Op.Type == lexer.NotMatch {
+	if me.Op.Type == lexer.NotTilde {
 		negate = true
 	}
 	res := right.MatchString(inter.toGoString(left))
@@ -967,7 +958,6 @@ func (inter *interpreter) run() error {
 	var skipNormals bool
 	var errexit ErrorExit
 
-	inter.currentFile = inter.stdinFile
 	err := inter.runBegins()
 	if ee, ok := err.(ErrorExit); ok {
 		errexit = ee
@@ -977,8 +967,6 @@ func (inter *interpreter) run() error {
 	}
 
 	if !skipNormals {
-		// nil to bootstrap walking through ARGV (zeroth file already at EOF)
-		inter.currentFile = nil
 		err := inter.runNormals()
 		if ee, ok := err.(ErrorExit); ok {
 			errexit = ee
@@ -987,7 +975,6 @@ func (inter *interpreter) run() error {
 		}
 	}
 
-	inter.currentFile = inter.stdinFile
 	err = inter.runEnds()
 	if ee, ok := err.(ErrorExit); ok {
 		errexit = ee
@@ -1024,13 +1011,6 @@ func (inter *interpreter) runNormals() error {
 			return err
 		}
 	}
-
-	// No input file processed (that is, ARGC == 1 or every element of ARGV is "")
-	if inter.currentFile == nil {
-		inter.currentFile = inter.stdinFile
-		return inter.runNormals()
-	}
-
 	return nil
 }
 
@@ -1101,7 +1081,7 @@ func (inter *interpreter) initialize(params RunParams) {
 
 	inter.globals = make([]awkvalue, len(params.ResolvedItems.Globalindices))
 
-	inter.ftable = make([]Callable, len(params.ResolvedItems.Functionindices))
+	inter.ftable = make([]*parser.FunctionDef, len(params.ResolvedItems.Functionindices))
 	inter.initializeFunctions(params)
 
 	// IO structures
@@ -1112,6 +1092,8 @@ func (inter *interpreter) initialize(params RunParams) {
 	inter.infiles = newInReaders()
 	inter.rng = NewRNG(0)
 	inter.argindex = 0
+	// nil to bootstrap walking through ARGV (zeroth file already at EOF)
+	inter.currentFile = nil
 	inter.stdin = params.Stdin
 	inter.stdout = params.Stdout
 	inter.stderr = params.Stderr
@@ -1173,20 +1155,9 @@ func (inter *interpreter) assignCommandLineString(assign string) {
 }
 
 func (inter *interpreter) initializeFunctions(params RunParams) {
-	// Builtins
-	for name, builtin := range builtinfuncs {
-		if _, ok := lexer.Builtinfuncs[name]; !ok {
-			log.Fatalf("function '%s' not listed in lexer.Builtinfuncs", name)
-		}
-		inter.ftable[params.ResolvedItems.Functionindices[name]] = builtin
-	}
-
 	// User defined
 	for _, fi := range params.ResolvedItems.Functions {
-		inter.ftable[params.ResolvedItems.Functionindices[fi.Name.Lexeme]] = &UserFunction{
-			Arity: len(fi.Args),
-			Body:  fi.Body,
-		}
+		inter.ftable[params.ResolvedItems.Functionindices[fi.Name.Lexeme]] = fi
 	}
 }
 

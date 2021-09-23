@@ -29,8 +29,8 @@ const (
 	Greater
 	GreaterEqual
 	DoubleGreater
-	Match
-	NotMatch
+	Tilde
+	NotTilde
 	DoubleAnd
 	DoublePipe
 	Pipe
@@ -72,11 +72,32 @@ const (
 	Next
 	Print
 	Printf
-	Rand
 	Return
 	While
+
 	Identifier
 	IdentifierParen
+
+	Atan2
+	Close
+	Cos
+	Exp
+	Gsub
+	Index
+	Int
+	Log
+	Match
+	Rand
+	Sin
+	Split
+	Sprintf
+	Sqrt
+	Srand
+	Substr
+	Sub
+	System
+	Tolower
+	Toupper
 
 	Regex
 	String
@@ -87,33 +108,6 @@ const (
 
 	TokenCount
 )
-
-// these functions are special (parsing-wise) because
-// they can be called with parentheses separated from
-// the name (e.g. cos (x))
-var Builtinfuncs = map[string]bool{
-	"atan2":   true,
-	"close":   true,
-	"cos":     true,
-	"exp":     true,
-	"gsub":    true,
-	"index":   true,
-	"int":     true,
-	"log":     true,
-	"match":   true,
-	"rand":    true,
-	"sin":     true,
-	"split":   true,
-	"sprintf": true,
-	"sqrt":    true,
-	"srand":   true,
-	"sran":    true,
-	"substr":  true,
-	"sub":     true,
-	"system":  true,
-	"tolower": true,
-	"toupper": true,
-}
 
 var keywords = map[string]TokenType{
 	"BEGIN":    Begin,
@@ -135,6 +129,27 @@ var keywords = map[string]TokenType{
 	"print":    Print,
 	"return":   Return,
 	"while":    While,
+
+	"atan2":   Atan2,
+	"close":   Close,
+	"cos":     Cos,
+	"exp":     Exp,
+	"gsub":    Gsub,
+	"index":   Index,
+	"int":     Int,
+	"log":     Log,
+	"match":   Match,
+	"rand":    Rand,
+	"sin":     Sin,
+	"split":   Split,
+	"sprintf": Sprintf,
+	"sqrt":    Sqrt,
+	"srand":   Srand,
+	"substr":  Substr,
+	"sub":     Sub,
+	"system":  System,
+	"tolower": Tolower,
+	"toupper": Toupper,
 }
 
 type trienode struct {
@@ -206,7 +221,7 @@ var punctuations = trienode{
 					current: NotEqual,
 				},
 				'~': {
-					current: NotMatch,
+					current: NotTilde,
 				},
 			},
 		},
@@ -238,7 +253,7 @@ var punctuations = trienode{
 			},
 		},
 		'~': {
-			current: Match,
+			current: Tilde,
 		},
 		'?': {
 			current: QuestionMark,

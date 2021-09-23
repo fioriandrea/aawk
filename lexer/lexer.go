@@ -198,19 +198,9 @@ func (l *Lexer) identifier() Token {
 		rettype = t
 	}
 
-	if rettype == Identifier {
-		if l.currentRune == '(' {
-			rettype = IdentifierParen
-			l.advance()
-		} else if _, ok := Builtinfuncs[lexeme.String()]; ok {
-			for unicode.IsSpace(l.currentRune) && l.currentRune != '\n' {
-				l.advance()
-			}
-			if l.currentRune == '(' {
-				rettype = IdentifierParen
-				l.advance()
-			}
-		}
+	if rettype == Identifier && l.currentRune == '(' {
+		rettype = IdentifierParen
+		l.advance()
 	}
 
 	return l.makeTokenFromBuilder(rettype, lexeme)

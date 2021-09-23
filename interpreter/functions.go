@@ -19,15 +19,6 @@ import (
 	"github.com/fioriandrea/aawk/parser"
 )
 
-type Callable interface {
-	Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error)
-}
-
-type UserFunction struct {
-	Arity int
-	Body  parser.BlockStat
-}
-
 func (inter *interpreter) giveStackFrame(size int) ([]awkvalue, int) {
 	if inter.stackcount+size > cap(inter.stack) {
 		return make([]awkvalue, size), 0
@@ -40,11 +31,12 @@ func (inter *interpreter) releaseStackFrame(size int) {
 	inter.stackcount -= size
 }
 
-func (f *UserFunction) Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-	sublocals, size := inter.giveStackFrame(f.Arity)
+func (inter *interpreter) evalUserCall(fdef *parser.FunctionDef, args []parser.Expr) (awkvalue, error) {
+	arity := len(fdef.Args)
+	sublocals, size := inter.giveStackFrame(arity)
 
 	linkarrays := map[int]*parser.IdExpr{}
-	for i := 0; i < f.Arity; i++ {
+	for i := 0; i < arity; i++ {
 		var arg parser.Expr
 		if len(args) > 0 {
 			arg, args = args[0], args[1:]
@@ -84,7 +76,7 @@ func (f *UserFunction) Call(inter *interpreter, called lexer.Token, args []parse
 		}
 	}()
 
-	err := inter.execute(f.Body)
+	err := inter.execute(fdef.Body)
 	var retval awkvalue
 	if errRet, ok := err.(errorReturn); ok {
 		retval = awkvalue(errRet)
@@ -95,16 +87,10 @@ func (f *UserFunction) Call(inter *interpreter, called lexer.Token, args []parse
 	return retval, nil
 }
 
-type BuiltinFunction func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error)
-
-func (nf BuiltinFunction) Call(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
-	return nf(inter, called, args)
-}
-
-var builtinfuncs = map[string]BuiltinFunction{
+func (inter *interpreter) evalBuiltinCall(called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	switch called.Type {
 	// Arithmetic functions
-
-	"atan2": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Atan2:
 		if len(args) != 2 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
@@ -119,9 +105,7 @@ var builtinfuncs = map[string]BuiltinFunction{
 		num1 := n1.float()
 		num2 := n2.float()
 		return awknumber(math.Atan2(num1, num2)), nil
-	},
-
-	"cos": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Cos:
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
@@ -131,9 +115,7 @@ var builtinfuncs = map[string]BuiltinFunction{
 		}
 		num := n.float()
 		return awknumber(math.Cos(num)), nil
-	},
-
-	"sin": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Sin:
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
@@ -143,9 +125,7 @@ var builtinfuncs = map[string]BuiltinFunction{
 		}
 		num := n.float()
 		return awknumber(math.Sin(num)), nil
-	},
-
-	"exp": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Exp:
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
@@ -155,9 +135,7 @@ var builtinfuncs = map[string]BuiltinFunction{
 		}
 		num := n.float()
 		return awknumber(math.Exp(num)), nil
-	},
-
-	"log": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Log:
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
@@ -170,9 +148,7 @@ var builtinfuncs = map[string]BuiltinFunction{
 			return null(), inter.runtimeError(called, "cannot compute log of a number <= 0")
 		}
 		return awknumber(math.Log(num)), nil
-	},
-
-	"sqrt": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Sqrt:
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
@@ -185,9 +161,7 @@ var builtinfuncs = map[string]BuiltinFunction{
 			return null(), inter.runtimeError(called, "cannot compute sqrt of a negative number")
 		}
 		return awknumber(math.Sqrt(num)), nil
-	},
-
-	"int": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Int:
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
@@ -197,17 +171,13 @@ var builtinfuncs = map[string]BuiltinFunction{
 		}
 		num := n.float()
 		return awknumber(float64(int(num))), nil
-	},
-
-	"rand": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Rand:
 		if len(args) > 0 {
 			return null(), inter.runtimeError(called, "too may arguments")
 		}
 		n := inter.rng.Float64()
 		return awknumber(n), nil
-	},
-
-	"srand": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Srand:
 		if len(args) > 1 {
 			return null(), inter.runtimeError(called, "too many arguments")
 		}
@@ -222,15 +192,10 @@ var builtinfuncs = map[string]BuiltinFunction{
 			inter.rng.SetSeed(int64(seed.float()))
 		}
 		return awknumber(float64(ret)), nil
-	},
-
 	// String functions
-
-	"gsub": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Gsub:
 		return generalsub(inter, called, args, true)
-	},
-
-	"index": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Index:
 		if len(args) != 2 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
@@ -245,9 +210,7 @@ var builtinfuncs = map[string]BuiltinFunction{
 		str := inter.toGoString(v0)
 		substr := inter.toGoString(v1)
 		return awknumber(float64(strings.Index(str, substr) + 1)), nil
-	},
-
-	"match": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Match:
 		if len(args) != 2 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
@@ -269,9 +232,7 @@ var builtinfuncs = map[string]BuiltinFunction{
 		inter.builtins[parser.Rstart] = awknumber(rstart)
 		inter.builtins[parser.Rlength] = awknumber(rlength)
 		return awknumber(rstart), nil
-	},
-
-	"split": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Split:
 		if len(args) < 3 {
 			args = append(args, nil)
 		}
@@ -308,9 +269,7 @@ var builtinfuncs = map[string]BuiltinFunction{
 		inter.setVariable(id, newval)
 
 		return awknumber(float64(len(newval.array))), nil
-	},
-
-	"sprintf": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Sprintf:
 		if len(args) == 0 {
 			args = append(args, nil)
 		}
@@ -320,13 +279,9 @@ var builtinfuncs = map[string]BuiltinFunction{
 			return null(), err
 		}
 		return awknormalstring(str.String()), nil
-	},
-
-	"sub": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Sub:
 		return generalsub(inter, called, args, false)
-	},
-
-	"substr": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Substr:
 		if len(args) == 2 {
 			args = append(args, nil)
 		}
@@ -364,9 +319,7 @@ var builtinfuncs = map[string]BuiltinFunction{
 			n = len(s) - m
 		}
 		return awknormalstring(string(s[m : m+n])), nil
-	},
-
-	"tolower": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Tolower:
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
@@ -375,9 +328,7 @@ var builtinfuncs = map[string]BuiltinFunction{
 			return null(), err
 		}
 		return awknormalstring(strings.ToLower(inter.toGoString(v))), nil
-	},
-
-	"toupper": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.Toupper:
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
@@ -386,11 +337,8 @@ var builtinfuncs = map[string]BuiltinFunction{
 			return null(), err
 		}
 		return awknormalstring(strings.ToUpper(inter.toGoString(v))), nil
-	},
-
-	// IO functions
-
-	"close": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	// IO Functions
+	case lexer.Close:
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
@@ -416,9 +364,7 @@ var builtinfuncs = map[string]BuiltinFunction{
 		}
 
 		return awknumber(float64(oprn | ofn | iprn)), nil
-	},
-
-	"system": func(inter *interpreter, called lexer.Token, args []parser.Expr) (awkvalue, error) {
+	case lexer.System:
 		if len(args) != 1 {
 			return null(), inter.runtimeError(called, "incorrect number of arguments")
 		}
@@ -429,7 +375,19 @@ var builtinfuncs = map[string]BuiltinFunction{
 		cmdstr := inter.toGoString(v)
 
 		return awknumber(float64(System(cmdstr, inter.stdin, inter.stdout, inter.stderr))), nil
-	},
+	}
+	return null(), nil
+}
+
+func (inter *interpreter) evalCall(ce *parser.CallExpr) (awkvalue, error) {
+	if ce.Called.Id.Type == lexer.Identifier || ce.Called.Id.Type == lexer.IdentifierParen {
+		fdef := inter.ftable[ce.Called.FunctionIndex]
+		return inter.evalUserCall(fdef, ce.Args)
+	} else {
+		called := ce.Called.Id
+		args := ce.Args
+		return inter.evalBuiltinCall(called, args)
+	}
 }
 
 func System(cmdstr string, stdin io.Reader, stdout io.Writer, stderr io.Writer) int {

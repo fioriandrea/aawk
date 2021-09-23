@@ -25,13 +25,13 @@ type parser struct {
 	infunction bool
 }
 
-func Parse(lex lexer.Lexer, builtinFunctions []string) (ResolvedItems, []error) {
+func Parse(lex lexer.Lexer, nativeFunctions []string) (ResolvedItems, []error) {
 	items, errs := GetItems(lex)
 	if errs != nil {
 		return ResolvedItems{}, errs
 	}
 
-	globalindices, functionindices, err := Resolve(items.All, builtinFunctions)
+	globalindices, functionindices, err := Resolve(items.All, nativeFunctions)
 	if err != nil {
 		return ResolvedItems{}, []error{err}
 	}
@@ -183,9 +183,7 @@ func (ps *parser) patternActionItem() (*PatternAction, []error) {
 
 func (ps *parser) pattern() (Pattern, error) {
 	switch ps.current.Type {
-	case lexer.Begin:
-		fallthrough
-	case lexer.End:
+	case lexer.Begin, lexer.End:
 		ps.nextable = false
 		ps.advance()
 		return &SpecialPattern{Type: ps.previous}, nil
@@ -262,9 +260,7 @@ func (ps *parser) stat() (Stat, []error) {
 		stat, err = ps.returnStat()
 	case lexer.Exit:
 		stat, err = ps.exitStat()
-	case lexer.Semicolon:
-		fallthrough
-	case lexer.Newline:
+	case lexer.Semicolon, lexer.Newline:
 		ps.advance()
 		stat, err = nil, nil
 	default:
@@ -375,9 +371,7 @@ func (ps *parser) simpleStat() (Stat, error) {
 	var stat Stat
 	var err error
 	switch ps.current.Type {
-	case lexer.Print:
-		fallthrough
-	case lexer.Printf:
+	case lexer.Print, lexer.Printf:
 		stat, err = ps.printStat()
 	case lexer.Delete:
 		stat, err = ps.deleteStat()
@@ -803,7 +797,7 @@ func (ps *parser) matchExpr() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ps.eat(lexer.Match, lexer.NotMatch) {
+	if ps.eat(lexer.Tilde, lexer.NotTilde) {
 		op := ps.previous
 		right, err := ps.inExpr()
 		if err != nil {
@@ -1060,6 +1054,14 @@ func (ps *parser) termExpr() (Expr, error) {
 				Id: id,
 			}, nil
 		}
+	case lexer.Atan2, lexer.Close, lexer.Cos, lexer.Exp, lexer.Gsub, lexer.Index, lexer.Int, lexer.Log, lexer.Match, lexer.Rand, lexer.Sin, lexer.Split, lexer.Sprintf, lexer.Sqrt, lexer.Srand, lexer.Substr, lexer.Sub, lexer.System, lexer.Tolower, lexer.Toupper:
+		id := ps.current
+		ps.advance()
+		if !ps.eat(lexer.LeftParen) {
+			sub, err = nil, ps.parseErrorAtCurrent("expected '(' after built-in function name")
+			break
+		}
+		sub, err = ps.callExpr(id)
 	case lexer.IdentifierParen:
 		id := ps.current
 		ps.advance()
@@ -1068,9 +1070,7 @@ func (ps *parser) termExpr() (Expr, error) {
 		sub, err = ps.lengthExpr()
 	case lexer.Getline:
 		sub, err = ps.getlineExpr()
-	case lexer.Slash:
-		fallthrough
-	case lexer.DivAssign:
+	case lexer.Slash, lexer.DivAssign:
 		sub, err = ps.regexExpr()
 	case lexer.Error:
 		defer ps.advance()

@@ -65,11 +65,11 @@ func newResolver() *resolver {
 	}
 }
 
-// Take builtins defined somewhere else (that is, not in the source code)
-func Resolve(items []Item, builtinFunctions []string) (map[string]int, map[string]int, error) {
+// Take functions defined somewhere else (that is, not in the source code)
+func Resolve(items []Item, nativeFunctions []string) (map[string]int, map[string]int, error) {
 	resolver := newResolver()
 
-	for _, builtin := range builtinFunctions {
+	for _, builtin := range nativeFunctions {
 		resolver.functionindices[builtin] = len(resolver.functionindices)
 	}
 
@@ -490,16 +490,20 @@ func (res *resolver) getlineExpr(e *GetlineExpr) error {
 }
 
 func (res *resolver) callExpr(e *CallExpr) error {
-	var err error
-	if i, ok := res.functionindices[e.Called.Id.Lexeme]; ok {
-		e.Called.FunctionIndex = i
+	// If it is not a built-in function (i.e. if it is user defined)
+	if e.Called.Id.Type == lexer.Identifier || e.Called.Id.Type == lexer.IdentifierParen {
+		if i, ok := res.functionindices[e.Called.Id.Lexeme]; ok {
+			e.Called.FunctionIndex = i
+		} else {
+			return res.resolveError(e.Token(), "cannot call non-callable")
+		}
 	} else {
-		return res.resolveError(e.Token(), "cannot call non-callable")
+		e.Called.FunctionIndex = -1
 	}
+
 	e.Called.Index = -1
 	e.Called.LocalIndex = -1
-	err = res.exprs(e.Args)
-	return err
+	return res.exprs(e.Args)
 }
 
 func (res *resolver) inExpr(e *InExpr) error {
