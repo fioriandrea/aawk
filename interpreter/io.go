@@ -45,8 +45,8 @@ func (st resources) closeAll() {
 	}
 }
 
-type RuneReadCloser interface {
-	io.RuneReader
+type ByteReadCloser interface {
+	io.ByteReader
 	io.Closer
 }
 
@@ -101,8 +101,8 @@ type incommand struct {
 	cmd    *exec.Cmd
 }
 
-func (ic incommand) ReadRune() (rune, int, error) {
-	return ic.stdout.ReadRune()
+func (ic incommand) ReadByte() (byte, error) {
+	return ic.stdout.ReadByte()
 }
 
 func (ic incommand) Close() error {
@@ -112,7 +112,7 @@ func (ic incommand) Close() error {
 	return nil
 }
 
-func spawnInCommand(name string, stdin io.Reader) RuneReadCloser {
+func spawnInCommand(name string, stdin io.Reader) ByteReadCloser {
 	cmd := exec.Command("sh", "-c", name)
 	cmd.Stdin = stdin
 	stdoutp, err := cmd.StdoutPipe()
@@ -130,12 +130,12 @@ func spawnInCommand(name string, stdin io.Reader) RuneReadCloser {
 }
 
 type infile struct {
-	reader io.RuneReader
+	reader io.ByteReader
 	file   *os.File
 }
 
-func (inf infile) ReadRune() (rune, int, error) {
-	return inf.reader.ReadRune()
+func (inf infile) ReadByte() (byte, error) {
+	return inf.reader.ReadByte()
 }
 
 func (inf infile) Close() error {
@@ -154,7 +154,7 @@ func spawnInFile(name string) infile {
 	}
 }
 
-func (inter *interpreter) nextRecord(r io.RuneReader) (string, error) {
+func (inter *interpreter) nextRecord(r io.ByteReader) (string, error) {
 	return nextRecord(r, inter.getRsStr())
 }
 
@@ -206,21 +206,17 @@ func (inter *interpreter) nextRecordCurrentFile() (string, error) {
 	return s, io.EOF
 }
 
-func nextRecord(reader io.RuneReader, delim string) (string, error) {
+func nextRecord(reader io.ByteReader, delim string) (string, error) {
 	if reader == nil {
 		return "", io.EOF
 	} else if delim == "" {
 		return nextMultilineRecord(reader)
 	} else {
-		// Hack to get the first rune
-		for _, r := range delim {
-			return nextSimpleRecord(reader, r)
-		}
+		return nextSimpleRecord(reader, delim[0])
 	}
-	return "", nil
 }
 
-func nextMultilineRecord(reader io.RuneReader) (string, error) {
+func nextMultilineRecord(reader io.ByteReader) (string, error) {
 	var buff strings.Builder
 	err := skipBlanks(&buff, reader)
 	if err != nil {
@@ -239,10 +235,10 @@ func nextMultilineRecord(reader io.RuneReader) (string, error) {
 	return buff.String(), nil
 }
 
-func nextSimpleRecord(reader io.RuneReader, delim rune) (string, error) {
+func nextSimpleRecord(reader io.ByteReader, delim byte) (string, error) {
 	var buff strings.Builder
 	for {
-		c, _, err := reader.ReadRune()
+		c, err := reader.ReadByte()
 		if err != nil {
 			return handleEndOfInput(buff, err)
 		}
@@ -254,7 +250,7 @@ func nextSimpleRecord(reader io.RuneReader, delim rune) (string, error) {
 	return buff.String(), nil
 }
 
-func skipBlanks(buff io.Writer, reader io.RuneReader) error {
+func skipBlanks(buff io.Writer, reader io.ByteReader) error {
 	for {
 		s, err := nextSimpleRecord(reader, '\n')
 		if err != nil {

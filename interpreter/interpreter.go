@@ -104,8 +104,8 @@ type interpreter struct {
 	inprograms  resources
 	infiles     resources
 	argindex    int
-	currentFile io.RuneReader
-	stdinFile   io.RuneReader
+	currentFile io.ByteReader
+	stdinFile   io.ByteReader
 	rng         rng
 
 	// Caches
@@ -500,10 +500,10 @@ func (inter *interpreter) evalGetline(gl *parser.GetlineExpr) (awkvalue, error) 
 	var fetchRecord func() (string, error)
 	switch gl.Op.Type {
 	case lexer.Pipe:
-		reader := inter.inprograms.get(filestr, func(name string) io.Closer { return spawnInCommand(name, inter.stdin) }).(io.RuneReader)
+		reader := inter.inprograms.get(filestr, func(name string) io.Closer { return spawnInCommand(name, inter.stdin) }).(io.ByteReader)
 		fetchRecord = func() (string, error) { return inter.nextRecord(reader) }
 	case lexer.Less:
-		reader := inter.infiles.get(filestr, func(name string) io.Closer { return spawnInFile(name) }).(io.RuneReader)
+		reader := inter.infiles.get(filestr, func(name string) io.Closer { return spawnInFile(name) }).(io.ByteReader)
 		fetchRecord = func() (string, error) { return inter.nextRecord(reader) }
 	default:
 		fetchRecord = inter.nextRecordCurrentFile
