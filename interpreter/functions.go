@@ -35,7 +35,6 @@ func (inter *interpreter) evalUserCall(fdef *parser.FunctionDef, args []parser.E
 	arity := len(fdef.Args)
 	sublocals, size := inter.giveStackFrame(arity)
 
-	linkarrays := map[int]*parser.IdExpr{}
 	for i := 0; i < arity; i++ {
 		var arg parser.Expr
 		if len(args) > 0 {
@@ -49,7 +48,11 @@ func (inter *interpreter) evalUserCall(fdef *parser.FunctionDef, args []parser.E
 
 		// undefined values could be used as arrays
 		if idexpr, ok := arg.(*parser.IdExpr); ok && v.typ == Null {
-			linkarrays[i] = idexpr
+			i := i
+			defer func() {
+				// link back arrays
+				inter.setVariable(idexpr, sublocals[i])
+			}()
 		}
 	}
 
@@ -64,16 +67,8 @@ func (inter *interpreter) evalUserCall(fdef *parser.FunctionDef, args []parser.E
 	inter.locals = sublocals
 
 	defer func() {
-		// link back arrays
 		inter.locals = prevlocals
 		inter.releaseStackFrame(size)
-
-		for local, calling := range linkarrays {
-			v := sublocals[local]
-			if v.typ == Array {
-				inter.setVariable(calling, v)
-			}
-		}
 	}()
 
 	err := inter.execute(fdef.Body)
