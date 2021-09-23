@@ -99,13 +99,13 @@ type interpreter struct {
 	stdin       io.Reader
 	stdout      io.Writer
 	stderr      io.Writer
-	outprograms outwriters
-	outfiles    outwriters
+	outprograms resources
+	outfiles    resources
+	inprograms  resources
+	infiles     resources
 	argindex    int
 	currentFile io.RuneReader
 	stdinFile   io.RuneReader
-	inprograms  inreaders
-	infiles     inreaders
 	rng         rng
 
 	// Caches
@@ -198,11 +198,11 @@ func (inter *interpreter) executePrint(ps *parser.PrintStat) error {
 		filestr := file.string(inter.getConvfmt())
 		switch ps.RedirOp.Type {
 		case lexer.Pipe:
-			w = inter.outprograms.get(filestr, inter.spawnOutProgram)
+			w = inter.outprograms.get(filestr, func(name string) io.Closer { return spawnOutCommand(name, inter.stdout, inter.stderr) }).(io.Writer)
 		case lexer.Greater:
-			w = inter.outfiles.get(filestr, spawnFileNormal)
+			w = inter.outfiles.get(filestr, func(name string) io.Closer { return spawnOutFile(name, 0) }).(io.Writer)
 		case lexer.DoubleGreater:
-			w = inter.outfiles.get(filestr, spawnFileAppend)
+			w = inter.outfiles.get(filestr, func(name string) io.Closer { return spawnOutFile(name, os.O_APPEND) }).(io.Writer)
 		}
 	}
 	switch ps.Print.Type {
@@ -500,10 +500,10 @@ func (inter *interpreter) evalGetline(gl *parser.GetlineExpr) (awkvalue, error) 
 	var fetchRecord func() (string, error)
 	switch gl.Op.Type {
 	case lexer.Pipe:
-		reader := inter.inprograms.get(filestr, inter.spawnInProgram)
+		reader := inter.inprograms.get(filestr, func(name string) io.Closer { return spawnInCommand(name, inter.stdin) }).(io.RuneReader)
 		fetchRecord = func() (string, error) { return inter.nextRecord(reader) }
 	case lexer.Less:
-		reader := inter.infiles.get(filestr, spawnInFile)
+		reader := inter.infiles.get(filestr, func(name string) io.Closer { return spawnInFile(name) }).(io.RuneReader)
 		fetchRecord = func() (string, error) { return inter.nextRecord(reader) }
 	default:
 		fetchRecord = inter.nextRecordCurrentFile
@@ -1086,13 +1086,12 @@ func (inter *interpreter) initialize(params RunParams) {
 
 	// IO structures
 
-	inter.outprograms = newOutWriters()
-	inter.outfiles = newOutWriters()
-	inter.inprograms = newInReaders()
-	inter.infiles = newInReaders()
+	inter.outprograms = resources{}
+	inter.outfiles = resources{}
+	inter.inprograms = resources{}
+	inter.infiles = resources{}
 	inter.rng = NewRNG(0)
 	inter.argindex = 0
-	// nil to bootstrap walking through ARGV (zeroth file already at EOF)
 	inter.currentFile = nil
 	inter.stdin = params.Stdin
 	inter.stdout = params.Stdout

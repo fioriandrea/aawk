@@ -225,7 +225,7 @@ func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, []error) {
 		stat, errs := ps.stat()
 		if len(errs) > 0 {
 			errors = append(errors, errs...)
-			for !ps.checkBeginStat() {
+			for !ps.checkBeginStat() && !ps.check(lexer.Eof, lexer.RightCurly) {
 				ps.advance()
 			}
 			continue

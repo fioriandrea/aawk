@@ -247,6 +247,7 @@ func (l *Lexer) punctuation() Token {
 		}
 	}
 	if currnode.current == Error {
+		l.advanceInside(&lexeme)
 		return l.makeErrorToken(fmt.Sprintf("undefined operator '%s'", lexeme.String()))
 	}
 	return l.makeTokenFromBuilder(currnode.current, lexeme)
