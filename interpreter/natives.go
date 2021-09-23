@@ -24,17 +24,22 @@ import (
  */
 func (inter *interpreter) evalNativeFunction(called lexer.Token, f interface{}, exprargs []parser.Expr) (awkvalue, error) {
 	ftype := reflect.TypeOf(f)
-	if ftype.NumIn() != len(exprargs) {
+	if !ftype.IsVariadic() && ftype.NumIn() != len(exprargs) {
 		return null(), inter.runtimeError(called, fmt.Sprintf("wrong number of arguments (expected %d)", ftype.NumIn()))
 	}
-	args := make([]reflect.Value, 0, len(exprargs))
-	for i, expr := range exprargs {
-		expr := expr
+	args := make([]reflect.Value, 0)
+	for i := 0; i < len(exprargs); i++ {
+		expr := exprargs[i]
 		awkarg, err := inter.evalArrayAllowed(expr)
 		if err != nil {
 			return null(), err
 		}
-		argtype := ftype.In(i)
+		var argtype reflect.Type
+		if ftype.IsVariadic() && i >= ftype.NumIn()-1 {
+			argtype = ftype.In(ftype.NumIn() - 1).Elem()
+		} else {
+			argtype = ftype.In(i)
+		}
 		if awkarg.typ == Array && argtype.Kind() != reflect.Map {
 			return null(), inter.runtimeError(called, "cannot use array in scalar context")
 		} else if awkarg.typ != Array && awkarg.typ != Null && argtype.Kind() == reflect.Map {
@@ -130,7 +135,7 @@ func validateNative(name string, native interface{}) error {
 	}
 	for i := 0; i < ftype.NumIn(); i++ {
 		intype := ftype.In(i)
-		if !isNativeTypeCompatible(intype) {
+		if ftype.IsVariadic() && i == ftype.NumIn()-1 && !isNativeTypeCompatible(intype.Elem()) || !ftype.IsVariadic() && !isNativeTypeCompatible(intype) {
 			return fmt.Errorf("native %s's argument at position %d (%s) is incompatible with AWK", name, i, intype.String())
 		}
 	}
