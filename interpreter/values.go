@@ -14,20 +14,20 @@ import (
 )
 
 const (
-	Null awkvaluetype = iota
+	Null Awkvaluetype = iota
 	Number
 	Normalstring
 	Numericstring
 	Array
 )
 
-type awkvaluetype int
+type Awkvaluetype int
 
-type awkvalue struct {
-	typ   awkvaluetype
+type Awkvalue struct {
+	typ   Awkvaluetype
 	n     float64
 	str   string
-	array map[string]awkvalue
+	array map[string]Awkvalue
 }
 
 func stringToNumber(s string) float64 {
@@ -44,64 +44,64 @@ func numberToString(n float64, format string) string {
 	}
 }
 
-func (v awkvalue) float() float64 {
+func (v Awkvalue) Float() float64 {
 	if v.typ == Normalstring {
 		return stringToNumber(v.str)
 	}
 	return v.n
 }
 
-func (v awkvalue) bool() bool {
+func (v Awkvalue) Bool() bool {
 	if v.typ == Normalstring {
 		return v.str != ""
 	}
 	return v.n != 0
 }
 
-func (v awkvalue) string(format string) string {
+func (v Awkvalue) String(format string) string {
 	if v.typ != Number {
 		return v.str
 	}
 	return numberToString(v.n, format)
 }
 
-func awknormalstring(s string) awkvalue {
-	return awkvalue{
+func Awknormalstring(s string) Awkvalue {
+	return Awkvalue{
 		typ: Normalstring,
 		str: s,
 	}
 }
 
-func awknumericstring(s string) awkvalue {
+func Awknumericstring(s string) Awkvalue {
 	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
 	if err != nil {
-		return awknormalstring(s)
+		return Awknormalstring(s)
 	}
-	return awkvalue{
+	return Awkvalue{
 		typ: Numericstring,
 		str: s,
 		n:   f,
 	}
 }
 
-func awknumber(n float64) awkvalue {
-	return awkvalue{
+func Awknumber(n float64) Awkvalue {
+	return Awkvalue{
 		typ: Number,
 		n:   n,
 	}
 }
 
-func awkarray(m map[string]awkvalue) awkvalue {
-	return awkvalue{
+func Awkarray(m map[string]Awkvalue) Awkvalue {
+	return Awkvalue{
 		typ:   Array,
 		array: m,
 	}
 }
 
-func null() awkvalue {
-	return awkvalue{}
+func Awknil() Awkvalue {
+	return Awkvalue{}
 }
 
-func (inter *interpreter) toGoString(v awkvalue) string {
-	return v.string(inter.getConvfmt())
+func (inter *interpreter) toGoString(v Awkvalue) string {
+	return v.String(inter.getConvfmt())
 }

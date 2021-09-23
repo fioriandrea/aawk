@@ -161,8 +161,8 @@ func (inter *interpreter) nextRecord(r io.ByteReader) (string, error) {
 func (inter *interpreter) nextRecordCurrentFile() (string, error) {
 	s, err := inter.nextRecord(inter.currentFile)
 	if err == nil {
-		inter.builtins[parser.Nr] = awknumber(inter.builtins[parser.Nr].float() + 1)
-		inter.builtins[parser.Fnr] = awknumber(inter.builtins[parser.Fnr].float() + 1)
+		inter.builtins[parser.Nr] = Awknumber(inter.builtins[parser.Nr].Float() + 1)
+		inter.builtins[parser.Fnr] = Awknumber(inter.builtins[parser.Fnr].Float() + 1)
 		return s, err
 	} else if err != io.EOF {
 		return "", err
@@ -174,7 +174,7 @@ func (inter *interpreter) nextRecordCurrentFile() (string, error) {
 	}
 	for {
 		inter.argindex++
-		if inter.argindex > int(inter.builtins[parser.Argc].float()) {
+		if inter.argindex > int(inter.builtins[parser.Argc].Float()) {
 			// No file has ever been processed, so start processing stdin
 			if inter.currentFile == nil {
 				inter.currentFile = inter.stdinFile
@@ -200,7 +200,7 @@ func (inter *interpreter) nextRecordCurrentFile() (string, error) {
 				file:   file,
 			}
 		}
-		inter.builtins[parser.Filename] = awknormalstring(fname)
+		inter.builtins[parser.Filename] = Awknormalstring(fname)
 		return inter.nextRecordCurrentFile()
 	}
 	return s, io.EOF
