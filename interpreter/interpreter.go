@@ -1169,6 +1169,7 @@ func (inter *interpreter) assignCommandLineString(assign string) {
 func (inter *interpreter) initializeFunctions(params RunParams) {
 	// Natives
 	for name, nf := range params.Natives {
+		nf := nf
 		inter.ftable[params.ResolvedItems.Functionindices[name]] = func(fname lexer.Token, args []parser.Expr) (awkvalue, error) {
 			return inter.evalNativeFunction(fname, nf, args)
 		}
@@ -1176,6 +1177,7 @@ func (inter *interpreter) initializeFunctions(params RunParams) {
 
 	// User defined
 	for _, fi := range params.ResolvedItems.Functions {
+		fi := fi
 		inter.ftable[params.ResolvedItems.Functionindices[fi.Name.Lexeme]] = func(fname lexer.Token, args []parser.Expr) (awkvalue, error) {
 			return inter.evalUserCall(fi, args)
 		}
