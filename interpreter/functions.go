@@ -382,7 +382,7 @@ func (inter *interpreter) evalBuiltinCall(called lexer.Token, args []parser.Expr
 func (inter *interpreter) evalCall(ce *parser.CallExpr) (awkvalue, error) {
 	if ce.Called.Id.Type == lexer.Identifier || ce.Called.Id.Type == lexer.IdentifierParen {
 		fdef := inter.ftable[ce.Called.FunctionIndex]
-		return inter.evalUserCall(fdef, ce.Args)
+		return fdef(ce.Called.Id, ce.Args)
 	} else {
 		called := ce.Called.Id
 		args := ce.Args

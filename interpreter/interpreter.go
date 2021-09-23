@@ -22,25 +22,20 @@ import (
 )
 
 type CommandLine struct {
-	Fs          string
-	Variables   []string
-	Program     io.RuneReader
-	Programname string
-	Arguments   []string
-	Stdin       io.Reader
-	Stdout      io.Writer
-	Stderr      io.Writer
-}
-
-type RunParams struct {
-	ResolvedItems  parser.ResolvedItems
 	Fs             string
-	Arguments      []string
-	Programname    string
 	Preassignments []string
+	Program        io.RuneReader
+	Programname    string
+	Arguments      []string
+	Natives        map[string]interface{}
 	Stdin          io.Reader
 	Stdout         io.Writer
 	Stderr         io.Writer
+}
+
+type RunParams struct {
+	CommandLine
+	ResolvedItems parser.ResolvedItems
 }
 
 type ErrorExit struct {
@@ -56,22 +51,25 @@ func ExecuteCL(cl CommandLine) []error {
 		return []error{fmt.Errorf("invalid FS")}
 	}
 
-	lex := lexer.NewLexer(cl.Program)
+	nativeserrors := make([]error, 0)
+	for name, native := range cl.Natives {
+		if err := validateNative(name, native); err != nil {
+			nativeserrors = append(nativeserrors, err)
+		}
+	}
+	if len(nativeserrors) > 0 {
+		return nativeserrors
+	}
 
-	items, errs := parser.Parse(lex, nil)
+	lex := lexer.NewLexer(cl.Program)
+	items, errs := parser.Parse(lex, cl.Natives)
 	if len(errs) > 0 {
 		return errs
 	}
 
 	err := Exec(RunParams{
-		ResolvedItems:  items,
-		Fs:             cl.Fs,
-		Arguments:      cl.Arguments,
-		Programname:    cl.Programname,
-		Preassignments: cl.Variables,
-		Stdin:          cl.Stdin,
-		Stdout:         cl.Stdout,
-		Stderr:         cl.Stderr,
+		ResolvedItems: items,
+		CommandLine:   cl,
 	})
 	if err != nil {
 		return []error{err}
@@ -91,7 +89,7 @@ type interpreter struct {
 	items parser.ResolvedItems
 
 	// Stacks
-	ftable     []*parser.FunctionDef
+	ftable     []func(lexer.Token, []parser.Expr) (awkvalue, error)
 	builtins   []awkvalue
 	fields     []awkvalue
 	globals    []awkvalue
@@ -1096,7 +1094,7 @@ func (inter *interpreter) initialize(params RunParams) {
 
 	inter.globals = make([]awkvalue, len(params.ResolvedItems.Globalindices))
 
-	inter.ftable = make([]*parser.FunctionDef, len(params.ResolvedItems.Functionindices))
+	inter.ftable = make([]func(lexer.Token, []parser.Expr) (awkvalue, error), len(params.ResolvedItems.Functionindices))
 	inter.initializeFunctions(params)
 
 	// IO structures
@@ -1169,9 +1167,18 @@ func (inter *interpreter) assignCommandLineString(assign string) {
 }
 
 func (inter *interpreter) initializeFunctions(params RunParams) {
+	// Natives
+	for name, nf := range params.Natives {
+		inter.ftable[params.ResolvedItems.Functionindices[name]] = func(fname lexer.Token, args []parser.Expr) (awkvalue, error) {
+			return inter.evalNativeFunction(fname, nf, args)
+		}
+	}
+
 	// User defined
 	for _, fi := range params.ResolvedItems.Functions {
-		inter.ftable[params.ResolvedItems.Functionindices[fi.Name.Lexeme]] = fi
+		inter.ftable[params.ResolvedItems.Functionindices[fi.Name.Lexeme]] = func(fname lexer.Token, args []parser.Expr) (awkvalue, error) {
+			return inter.evalUserCall(fi, args)
+		}
 	}
 }
 

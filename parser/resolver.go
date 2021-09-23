@@ -66,10 +66,10 @@ func newResolver() *resolver {
 }
 
 // Take functions defined somewhere else (that is, not in the source code)
-func Resolve(items []Item, nativeFunctions []string) (map[string]int, map[string]int, error) {
+func Resolve(items []Item, nativeFunctions map[string]interface{}) (map[string]int, map[string]int, error) {
 	resolver := newResolver()
 
-	for _, builtin := range nativeFunctions {
+	for builtin := range nativeFunctions {
 		resolver.functionindices[builtin] = len(resolver.functionindices)
 	}
 

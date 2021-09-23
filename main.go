@@ -116,14 +116,14 @@ outer:
 	remaining = args[i:]
 
 	return interpreter.CommandLine{
-		Fs:          fs,
-		Variables:   variables,
-		Program:     program,
-		Programname: os.Args[0],
-		Arguments:   remaining,
-		Stdin:       os.Stdin,
-		Stdout:      os.Stdout,
-		Stderr:      os.Stderr,
+		Fs:             fs,
+		Preassignments: variables,
+		Program:        program,
+		Programname:    os.Args[0],
+		Arguments:      remaining,
+		Stdin:          os.Stdin,
+		Stdout:         os.Stdout,
+		Stderr:         os.Stderr,
 	}
 }
 

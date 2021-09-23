@@ -25,7 +25,7 @@ type parser struct {
 	infunction bool
 }
 
-func Parse(lex lexer.Lexer, nativeFunctions []string) (ResolvedItems, []error) {
+func Parse(lex lexer.Lexer, nativeFunctions map[string]interface{}) (ResolvedItems, []error) {
 	items, errs := GetItems(lex)
 	if errs != nil {
 		return ResolvedItems{}, errs
