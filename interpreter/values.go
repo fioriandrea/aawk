@@ -101,3 +101,7 @@ func awkarray(m map[string]awkvalue) awkvalue {
 func null() awkvalue {
 	return awkvalue{}
 }
+
+func (inter *interpreter) toGoString(v awkvalue) string {
+	return v.string(inter.getConvfmt())
+}

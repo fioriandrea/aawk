@@ -155,7 +155,7 @@ func spawnInFile(name string) infile {
 }
 
 func (inter *interpreter) nextRecord(r io.ByteReader) (string, error) {
-	return nextRecord(r, inter.getRsStr())
+	return nextRecord(r, inter.getRs())
 }
 
 func (inter *interpreter) nextRecordCurrentFile() (string, error) {
@@ -225,7 +225,7 @@ func nextMultilineRecord(reader io.ByteReader) (string, error) {
 	for {
 		s, err := nextSimpleRecord(reader, '\n')
 		if err != nil {
-			return handleEndOfInput(buff, err)
+			return handleEndOfInput(buff.String(), err)
 		}
 		if s == "" {
 			break
@@ -240,12 +240,12 @@ func nextSimpleRecord(reader io.ByteReader, delim byte) (string, error) {
 	for {
 		c, err := reader.ReadByte()
 		if err != nil {
-			return handleEndOfInput(buff, err)
+			return handleEndOfInput(buff.String(), err)
 		}
 		if c == delim {
 			break
 		}
-		fmt.Fprintf(&buff, "%c", c)
+		buff.WriteByte(c)
 	}
 	return buff.String(), nil
 }
@@ -264,13 +264,12 @@ func skipBlanks(buff io.Writer, reader io.ByteReader) error {
 	return nil
 }
 
-func handleEndOfInput(buff strings.Builder, err error) (string, error) {
+func handleEndOfInput(cum string, err error) (string, error) {
 	if err != io.EOF {
 		return "", err
 	}
-	str := buff.String()
-	if len(str) == 0 {
+	if len(cum) == 0 {
 		return "", io.EOF
 	}
-	return str, nil
+	return cum, nil
 }

@@ -63,7 +63,7 @@ func ExecuteCL(cl CommandLine) []error {
 		return errs
 	}
 
-	return []error{Exec(RunParams{
+	err := Exec(RunParams{
 		ResolvedItems:  items,
 		Fs:             cl.Fs,
 		Arguments:      cl.Arguments,
@@ -72,7 +72,11 @@ func ExecuteCL(cl CommandLine) []error {
 		Stdin:          cl.Stdin,
 		Stdout:         cl.Stdout,
 		Stderr:         cl.Stderr,
-	})}
+	})
+	if err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 func Exec(params RunParams) error {
@@ -188,8 +192,7 @@ func (inter *interpreter) executeExpr(es *parser.ExprStat) error {
 }
 
 func (inter *interpreter) executePrint(ps *parser.PrintStat) error {
-	var w io.Writer
-	w = os.Stdout
+	w := inter.stdout
 	if ps.File != nil {
 		file, err := inter.eval(ps.File)
 		if err != nil {
@@ -218,7 +221,7 @@ func (inter *interpreter) executeSimplePrint(w io.Writer, ps *parser.PrintStat) 
 	if ps.Exprs == nil {
 		fmt.Fprint(w, inter.toGoString(inter.getField(0)))
 	} else {
-		sep := ""
+		buff := make([]string, 0, 10)
 		for _, expr := range ps.Exprs {
 			v, err := inter.eval(expr)
 			if err != nil {
@@ -227,10 +230,9 @@ func (inter *interpreter) executeSimplePrint(w io.Writer, ps *parser.PrintStat) 
 			if v.typ == Array {
 				return inter.runtimeError(ps.Token(), "cannot print array")
 			}
-			fmt.Fprint(w, sep)
-			fmt.Fprint(w, v.string(inter.getOfmt()))
-			sep = inter.toGoString(inter.builtins[parser.Ofs])
+			buff = append(buff, v.string(inter.getOfmt()))
 		}
+		fmt.Fprint(w, strings.Join(buff, inter.toGoString(inter.builtins[parser.Ofs])))
 	}
 	fmt.Fprint(w, inter.toGoString(inter.builtins[parser.Ors]))
 	return nil
@@ -344,6 +346,8 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 	var val awkvalue
 	var err error
 	switch v := expr.(type) {
+	case parser.LhsExpr:
+		val, _, err = inter.evalLhs(v)
 	case *parser.BinaryExpr:
 		val, err = inter.evalBinary(v)
 	case *parser.UnaryExpr:
@@ -354,10 +358,6 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 		val = awknormalstring(v.Str.Lexeme)
 	case *parser.AssignExpr:
 		val, err = inter.evalAssign(v)
-	case *parser.IdExpr:
-		val, err = inter.evalId(v)
-	case *parser.IndexingExpr:
-		val, err = inter.evalIndexing(v)
 	case *parser.PreIncrementExpr:
 		val, err = inter.evalPreIncrement(v)
 	case *parser.PostIncrementExpr:
@@ -366,8 +366,6 @@ func (inter *interpreter) eval(expr parser.Expr) (awkvalue, error) {
 		val, err = inter.evalTernary(v)
 	case *parser.BinaryBoolExpr:
 		val, err = inter.evalBinaryBool(v)
-	case *parser.DollarExpr:
-		val, err = inter.evalDollar(v)
 	case *parser.GetlineExpr:
 		val, err = inter.evalGetline(v)
 	case *parser.LengthExpr:
@@ -479,12 +477,12 @@ func (inter *interpreter) evalBinaryBool(bb *parser.BinaryBoolExpr) (awkvalue, e
 	return val, err
 }
 
-func (inter *interpreter) evalDollar(de *parser.DollarExpr) (awkvalue, error) {
+func (inter *interpreter) evalDollar(de *parser.DollarExpr) (awkvalue, awkvalue, error) {
 	ind, err := inter.eval(de.Field)
 	if err != nil {
-		return null(), err
+		return null(), null(), err
 	}
-	return inter.getField(int(ind.float())), nil
+	return inter.getField(int(ind.float())), ind, nil
 }
 
 func (inter *interpreter) evalGetline(gl *parser.GetlineExpr) (awkvalue, error) {
@@ -600,16 +598,12 @@ func (inter *interpreter) evalMatchExpr(me *parser.MatchExpr) (awkvalue, error) 
 	if err != nil {
 		return null(), err
 	}
-	right, err := inter.evalRegex(me.Right)
+	rightre, err := inter.evalRegex(me.Right)
 	if err != nil {
 		return null(), err
 	}
-	var negate bool
+	res := rightre.MatchString(inter.toGoString(left))
 	if me.Op.Type == lexer.NotTilde {
-		negate = true
-	}
-	res := right.MatchString(inter.toGoString(left))
-	if negate {
 		res = !res
 	}
 	if res {
@@ -628,12 +622,16 @@ func (inter *interpreter) evalRegex(e parser.Expr) (*regexp.Regexp, error) {
 		if err != nil {
 			return nil, err
 		}
-		res, err := regexp.Compile(inter.toGoString(rev))
-		if err != nil {
-			return nil, inter.runtimeError(e.Token(), "invalid regular expression")
-		}
-		return res, nil
+		return inter.evalRegexFromString(e.Token(), inter.toGoString(rev))
 	}
+}
+
+func (inter *interpreter) evalRegexFromString(retok lexer.Token, str string) (*regexp.Regexp, error) {
+	res, err := regexp.Compile(str)
+	if err != nil {
+		return nil, inter.runtimeError(retok, fmt.Sprint(err))
+	}
+	return res, nil
 }
 
 func (inter *interpreter) evalAnd(bb *parser.BinaryBoolExpr) (awkvalue, error) {
@@ -745,8 +743,21 @@ func (inter *interpreter) evalPostIncrement(po *parser.PostIncrementExpr) (awkva
 	return val, nil
 }
 
+func (inter *interpreter) evalLhs(lhs parser.LhsExpr) (awkvalue, awkvalue, error) {
+	switch l := lhs.(type) {
+	case *parser.IdExpr:
+		v, err := inter.evalId(l)
+		return v, null(), err
+	case *parser.DollarExpr:
+		return inter.evalDollar(l)
+	case *parser.IndexingExpr:
+		return inter.evalIndexing(l)
+	}
+	return null(), null(), nil
+}
+
 func (inter *interpreter) evalIncrement(inc *parser.IncrementExpr) (awkvalue, awkvalue, error) {
-	varval, err := inter.eval(inc.Lhs)
+	varval, index, err := inter.evalLhs(inc.Lhs)
 	if err != nil {
 		return null(), null(), err
 	}
@@ -758,7 +769,7 @@ func (inter *interpreter) evalIncrement(inc *parser.IncrementExpr) (awkvalue, aw
 	case lexer.Decrement:
 		ival.n = val.n - 1
 	}
-	_, err = inter.evalAssignToLhs(inc.Lhs, ival)
+	_, err = inter.evalAssignToLhsIndex(inc.Lhs, index, ival)
 	if err != nil {
 		return null(), null(), err
 	}
@@ -766,6 +777,14 @@ func (inter *interpreter) evalIncrement(inc *parser.IncrementExpr) (awkvalue, aw
 }
 
 func (inter *interpreter) evalAssignToLhs(lhs parser.LhsExpr, val awkvalue) (awkvalue, error) {
+	_, index, err := inter.evalLhs(lhs)
+	if err != nil {
+		return null(), err
+	}
+	return inter.evalAssignToLhsIndex(lhs, index, val)
+}
+
+func (inter *interpreter) evalAssignToLhsIndex(lhs parser.LhsExpr, index awkvalue, val awkvalue) (awkvalue, error) {
 	switch left := lhs.(type) {
 	case *parser.IdExpr:
 		if inter.getVariable(left).typ == Array {
@@ -776,11 +795,7 @@ func (inter *interpreter) evalAssignToLhs(lhs parser.LhsExpr, val awkvalue) (awk
 			return null(), err
 		}
 	case *parser.DollarExpr:
-		i, err := inter.eval(left.Field)
-		if err != nil {
-			return null(), err
-		}
-		inter.setField(int(i.float()), val)
+		inter.setField(int(index.float()), val)
 	case *parser.IndexingExpr:
 		arrval := inter.getVariable(left.Id)
 		if arrval.typ == Null {
@@ -790,11 +805,7 @@ func (inter *interpreter) evalAssignToLhs(lhs parser.LhsExpr, val awkvalue) (awk
 		if arrval.typ != Array {
 			return null(), inter.runtimeError(left.Token(), "cannot index scalar variable")
 		}
-		ind, err := inter.evalIndex(left.Index)
-		if err != nil {
-			return null(), err
-		}
-		arrval.array[ind.str] = val
+		arrval.array[inter.toGoString(index)] = val
 	}
 	return val, nil
 }
@@ -819,17 +830,21 @@ func (inter *interpreter) evalId(i *parser.IdExpr) (awkvalue, error) {
 	return v, nil
 }
 
-func (inter *interpreter) evalIndexing(i *parser.IndexingExpr) (awkvalue, error) {
+func (inter *interpreter) evalIndexing(i *parser.IndexingExpr) (awkvalue, awkvalue, error) {
 	v, err := inter.getArrayVariable(i.Id)
 	if err != nil {
-		return null(), err
+		return null(), null(), err
 	}
 	index, err := inter.evalIndex(i.Index)
 	if err != nil {
-		return null(), err
+		return null(), null(), err
 	}
-	res := v.array[index.str]
-	return res, nil
+	res, ok := v.array[index.str]
+	// Mentioning an index makes it part of the array keys
+	if !ok {
+		v.array[index.str] = null()
+	}
+	return res, index, nil
 }
 
 func (inter *interpreter) evalIndex(ind []parser.Expr) (awkvalue, error) {
@@ -879,10 +894,6 @@ func (inter *interpreter) setField(i int, v awkvalue) {
 	}
 }
 
-func (inter *interpreter) toGoString(v awkvalue) string {
-	return v.string(inter.getConvfmt())
-}
-
 func (inter *interpreter) getVariable(id *parser.IdExpr) awkvalue {
 	if id.Index >= 0 {
 		return inter.globals[id.Index]
@@ -925,17 +936,21 @@ func (inter *interpreter) setVariable(id *parser.IdExpr, v awkvalue) error {
 
 func (inter *interpreter) setFs(token lexer.Token, v awkvalue) error {
 	str := v.string(inter.getConvfmt())
-	restr := str
-	if len(restr) <= 1 && restr != " " {
-		restr = "[" + restr + "]"
-	}
-	re, err := regexp.Compile(restr)
-	if err != nil {
-		return inter.runtimeError(token, "invalid regular expression")
-	}
 	inter.builtins[parser.Fs] = awknormalstring(str)
+	if len(str) <= 1 {
+		inter.fsregex = nil
+		return nil
+	}
+	re, err := regexp.Compile(str)
+	if err != nil {
+		return inter.runtimeError(token, fmt.Sprint(err))
+	}
 	inter.fsregex = re
 	return nil
+}
+
+func (inter *interpreter) getFs() string {
+	return inter.toGoString(inter.builtins[parser.Fs])
 }
 
 func (inter *interpreter) getOfmt() string {
@@ -946,7 +961,7 @@ func (inter *interpreter) getConvfmt() string {
 	return inter.builtins[parser.Convfmt].str
 }
 
-func (inter *interpreter) getRsStr() string {
+func (inter *interpreter) getRs() string {
 	return inter.toGoString(inter.builtins[parser.Rs])
 }
 

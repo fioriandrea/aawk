@@ -498,21 +498,31 @@ func (inter *interpreter) fprintf(w io.Writer, print lexer.Token, exprs []parser
 }
 
 func (inter *interpreter) split(s string, e parser.Expr) ([]string, error) {
-	var re *regexp.Regexp
-	var err error
-	if e == nil {
-		re = inter.fsregex
-	} else {
-		re, err = inter.evalRegex(e)
+	fs := inter.getFs()
+	if e != nil {
+		vfs, err := inter.eval(e)
 		if err != nil {
 			return nil, err
 		}
+		fs = inter.toGoString(vfs)
 	}
-	if re.String() == " " {
-		s = strings.TrimSpace(s)
-		re = inter.spaceregex
+	if len(s) == 0 {
+		return nil, nil
+	} else if fs == " " {
+		return strings.Fields(s), nil
+	} else if len(fs) <= 1 {
+		return strings.Split(s, fs), nil
+	} else {
+		re := inter.fsregex
+		if e != nil {
+			var err error
+			re, err = inter.evalRegexFromString(e.Token(), fs)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return re.Split(s, -1), nil
 	}
-	return re.Split(s, -1), nil
 }
 
 func generalsub(inter *interpreter, called lexer.Token, args []parser.Expr, global bool) (awkvalue, error) {
