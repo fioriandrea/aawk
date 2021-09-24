@@ -20,7 +20,8 @@ import (
  * be either strings or numeric strings or numbers or undefined. Go maps must
  * have a single type. It is also hard to use interfaces because the map would
  * have to be copied (i.e. not passed by reference). For this reason, maps can
- * only take Awkvalue as values.
+ * only take Awkvalue as values. Also, the only struct that can be passed is
+ * Awkvalue.
  */
 func (inter *interpreter) evalNativeFunction(called lexer.Token, f interface{}, exprargs []parser.Expr) (Awkvalue, error) {
 	ftype := reflect.TypeOf(f)
@@ -59,13 +60,15 @@ func (inter *interpreter) evalNativeFunction(called lexer.Token, f interface{}, 
 			}
 		}
 
+		// Assign maps to undefined variables
+		if id, isid := expr.(*parser.IdExpr); argtype.Kind() == reflect.Map && awkarg.typ == Null && isid {
+			awkarg = Awkarray(map[string]Awkvalue{})
+			inter.setVariable(id, awkarg)
+		}
+
 		nativearg := awkvalueToNative(awkarg, argtype, inter.getConvfmt())
 		args = append(args, nativearg)
 
-		// Assign maps back to undefined variables
-		if id, isid := expr.(*parser.IdExpr); argtype.Kind() == reflect.Map && awkarg.typ == Null && isid {
-			defer inter.setVariable(id, nativeToAwkvalue(nativearg))
-		}
 	}
 
 	ret := reflect.ValueOf(f).Call(args)
@@ -108,7 +111,7 @@ func awkvalueToNative(v Awkvalue, nativetype reflect.Type, convfmt string) refle
 		return reflect.ValueOf(v.String(convfmt))
 	case reflect.Map:
 		return reflect.ValueOf(v.array)
-	case reflect.Struct: // Awkvalue
+	case reflect.Struct:
 		return reflect.ValueOf(v)
 	}
 	panic(nativetype.Kind().String())
@@ -163,11 +166,13 @@ func validateNative(name string, native interface{}) error {
 func isNativeTypeCompatible(ntype reflect.Type) bool {
 	if isNativeTypeCompatibleScalar(ntype) {
 		return true
-	}
-	if ntype.Kind() != reflect.Map {
+	} else if ntype.Kind() == reflect.Struct {
+		return ntype == reflect.TypeOf(Awknil())
+	} else if ntype.Kind() == reflect.Map {
+		return ntype.Key().Kind() == reflect.String && ntype.Elem() == reflect.TypeOf(Awknil())
+	} else {
 		return false
 	}
-	return ntype.Key().Kind() == reflect.String && ntype.Elem() == reflect.TypeOf(Awknil())
 }
 
 func isNativeTypeCompatibleScalar(ntype reflect.Type) bool {
