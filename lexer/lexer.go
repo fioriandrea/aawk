@@ -155,16 +155,29 @@ func (l *Lexer) string() Token {
 				cc := l.currentRune
 				seq := int(cc - '0')
 				cc = l.advance()
-				if cc >= '0' && cc <= '7' {
-					seq = seq*8 + int(cc-'0')
+				if isOctalDigit(cc) {
+					seq = seq*8 + hexToInt(cc)
 					cc = l.advance()
-					if cc >= '0' && c <= '7' {
-						seq = seq*8 + int(cc-'0')
+					if isOctalDigit(cc) {
+						seq = seq*8 + hexToInt(cc)
 						l.advance()
 					}
 				}
 				c = rune(seq)
-
+			case 'x':
+				l.advance()
+				cc := l.currentRune
+				if !isHexDigit(cc) {
+					c = 'x'
+					break
+				}
+				seq := hexToInt(cc)
+				cc = l.advance()
+				if isHexDigit(cc) {
+					seq = seq*16 + hexToInt(cc)
+					l.advance()
+				}
+				c = rune(seq)
 			default:
 				c = l.currentRune
 				l.advance()
@@ -294,4 +307,21 @@ func (l *Lexer) advanceInside(builder *strings.Builder) {
 
 func (l *Lexer) atEnd() bool {
 	return l.currentRune == '\000'
+}
+
+func isHexDigit(c rune) bool {
+	c = unicode.ToLower(c)
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f'
+}
+
+func hexToInt(c rune) int {
+	c = unicode.ToLower(c)
+	if c >= '0' && c <= '9' {
+		return int(c - '0')
+	}
+	return int(c - 'a')
+}
+
+func isOctalDigit(c rune) bool {
+	return c >= '0' && c <= 7
 }
