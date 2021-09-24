@@ -1044,7 +1044,28 @@ func (ps *parser) postIncrementExpr() (Expr, error) {
 		op := ps.previous
 		lhs, islhs := expr.(LhsExpr)
 		if !islhs {
-			return nil, ps.parseErrorAt(op, "cannot use post-increment or post-decrement operator on non lvalue")
+			// Try preincrement and concat
+			term, err := ps.termExpr()
+			if err != nil {
+				return nil, err
+			}
+			rhs, isrhs := term.(LhsExpr)
+			if !isrhs {
+				return nil, ps.parseErrorAt(op, "cannot use post-increment or post-decrement operator on non lvalue")
+			}
+			return &BinaryExpr{
+				Left: expr,
+				Op: lexer.Token{
+					Type: lexer.Concat,
+					Line: expr.Token().Line,
+				},
+				Right: &PreIncrementExpr{
+					&IncrementExpr{
+						Op:  op,
+						Lhs: rhs,
+					},
+				},
+			}, nil
 		}
 		return &PostIncrementExpr{
 			&IncrementExpr{
