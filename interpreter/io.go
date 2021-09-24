@@ -18,9 +18,9 @@ import (
 	"github.com/fioriandrea/aawk/parser"
 )
 
-type resources map[string]io.Closer
+type closableStreams map[string]io.Closer
 
-func (st resources) get(name string, spawner func(string) (io.Closer, error)) (io.Closer, error) {
+func (st closableStreams) get(name string, spawner func(string) (io.Closer, error)) (io.Closer, error) {
 	s, ok := st[name]
 	if ok {
 		return s, nil
@@ -33,7 +33,7 @@ func (st resources) get(name string, spawner func(string) (io.Closer, error)) (i
 	return s, nil
 }
 
-func (st resources) close(name string) error {
+func (st closableStreams) close(name string) error {
 	s, ok := st[name]
 	if !ok {
 		return nil
@@ -42,7 +42,7 @@ func (st resources) close(name string) error {
 	return s.Close()
 }
 
-func (st resources) closeAll() []error {
+func (st closableStreams) closeAll() []error {
 	errors := make([]error, 0)
 	for name := range st {
 		err := st.close(name)

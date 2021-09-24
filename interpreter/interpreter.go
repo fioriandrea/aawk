@@ -107,10 +107,10 @@ type interpreter struct {
 	stdin       io.Reader
 	stdout      io.Writer
 	stderr      io.Writer
-	outprograms resources
-	outfiles    resources
-	inprograms  resources
-	infiles     resources
+	outprograms closableStreams
+	outfiles    closableStreams
+	inprograms  closableStreams
+	infiles     closableStreams
 	argindex    int
 	currentFile io.ByteReader
 	stdinFile   io.ByteReader
@@ -1142,10 +1142,10 @@ func (inter *interpreter) initialize(params RunParams) {
 
 	// IO structures
 
-	inter.outprograms = resources{}
-	inter.outfiles = resources{}
-	inter.inprograms = resources{}
-	inter.infiles = resources{}
+	inter.outprograms = closableStreams{}
+	inter.outfiles = closableStreams{}
+	inter.inprograms = closableStreams{}
+	inter.infiles = closableStreams{}
 	inter.rng = newRNG(0)
 	inter.argindex = 0
 	inter.currentFile = nil
