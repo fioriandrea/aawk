@@ -487,6 +487,9 @@ func (inter *interpreter) fprintf(w io.Writer, print lexer.Token, exprs []parser
 		}
 		args = append(args, convs[0](arg))
 		convs = convs[1:]
+		if len(convs) == 0 {
+			break
+		}
 	}
 	fmt.Fprintf(w, formatstr, args...)
 	return nil
