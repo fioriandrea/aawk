@@ -204,7 +204,7 @@ func (inter *interpreter) evalBuiltinCall(called lexer.Token, args []parser.Expr
 		}
 		str := inter.toGoString(v0)
 		substr := inter.toGoString(v1)
-		return Awknumber(float64(strings.Index(str, substr) + 1)), nil
+		return Awknumber(float64(indexRuneSlice([]rune(str), []rune(substr)) + 1)), nil
 	case lexer.Match:
 		if len(args) != 2 {
 			return Awknil(), inter.runtimeError(called, "incorrect number of arguments")
@@ -369,7 +369,7 @@ func (inter *interpreter) evalBuiltinCall(called lexer.Token, args []parser.Expr
 		}
 		cmdstr := inter.toGoString(v)
 
-		return Awknumber(float64(System(cmdstr, inter.stdin, inter.stdout, inter.stderr))), nil
+		return Awknumber(float64(system(cmdstr, inter.stdin, inter.stdout, inter.stderr))), nil
 	}
 	return Awknil(), nil
 }
@@ -385,7 +385,7 @@ func (inter *interpreter) evalCall(ce *parser.CallExpr) (Awkvalue, error) {
 	}
 }
 
-func System(cmdstr string, stdin io.Reader, stdout io.Writer, stderr io.Writer) int {
+func system(cmdstr string, stdin io.Reader, stdout io.Writer, stderr io.Writer) int {
 	cmd := exec.Command("sh", "-c", cmdstr)
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
@@ -588,4 +588,17 @@ func sub(re *regexp.Regexp, repl string, src string, global bool) string {
 		}
 		return string(b)
 	})
+}
+
+func indexRuneSlice(s []rune, t []rune) int {
+outer:
+	for i := 0; i <= len(s)-len(t); i++ {
+		for j := 0; j < len(t); j++ {
+			if s[i+j] != t[j] {
+				continue outer
+			}
+		}
+		return i
+	}
+	return -1
 }
