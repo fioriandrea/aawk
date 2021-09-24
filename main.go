@@ -49,7 +49,7 @@ func parseCliArguments() interpreter.CommandLine {
 	fs := " "
 	var variables []string
 	var remaining []string
-	var program io.RuneReader
+	var program io.Reader
 
 	var i int
 	var programfiles []io.Reader

@@ -24,7 +24,7 @@ import (
 type CommandLine struct {
 	Fs             string
 	Preassignments []string
-	Program        io.RuneReader
+	Program        io.Reader
 	Programname    string
 	Arguments      []string
 	Natives        map[string]interface{}

@@ -437,7 +437,7 @@ type ResolvedItems struct {
 }
 
 type CommandLine struct {
-	Program        io.RuneReader
+	Program        io.Reader
 	Fs             string
 	Preassignments []string
 	Natives        map[string]interface{}

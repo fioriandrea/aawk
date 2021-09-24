@@ -9,6 +9,7 @@ package parser
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"regexp"
 	"strings"
 
@@ -74,8 +75,12 @@ func ParseCl(cl CommandLine) (CompiledProgram, []error) {
 	}, errors
 }
 
-func parseProgram(prog io.RuneReader, nativeFunctions map[string]interface{}) (ResolvedItems, []error) {
-	lex := lexer.NewLexer(prog)
+func parseProgram(prog io.Reader, nativeFunctions map[string]interface{}) (ResolvedItems, []error) {
+	b, err := ioutil.ReadAll(prog)
+	if err != nil {
+		return ResolvedItems{}, []error{err}
+	}
+	lex := lexer.NewLexer(b)
 	items, errs := getItems(lex)
 	if errs != nil {
 		return ResolvedItems{}, errs

@@ -7,6 +7,7 @@
 package lexer
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -29,10 +30,10 @@ type Lexer struct {
 	previousToken Token
 }
 
-func NewLexer(reader io.RuneReader) Lexer {
+func NewLexer(program []byte) Lexer {
 	lex := Lexer{
 		line:   1,
-		reader: reader,
+		reader: bytes.NewReader(program),
 	}
 	lex.advance()
 	return lex
