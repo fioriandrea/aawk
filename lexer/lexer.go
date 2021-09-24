@@ -153,7 +153,7 @@ func (l *Lexer) string() Token {
 				l.advance()
 			case '0', '1', '2', '3', '4', '5', '6', '7':
 				cc := l.currentRune
-				seq := int(cc - '0')
+				seq := hexToInt(cc)
 				cc = l.advance()
 				if isOctalDigit(cc) {
 					seq = seq*8 + hexToInt(cc)
@@ -323,5 +323,5 @@ func hexToInt(c rune) int {
 }
 
 func isOctalDigit(c rune) bool {
-	return c >= '0' && c <= 7
+	return c >= '0' && c <= '7'
 }
