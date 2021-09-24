@@ -311,11 +311,11 @@ func (ps *parser) stat() (Stat, []error) {
 	case lexer.Exit:
 		stat, err = ps.exitStat()
 	case lexer.Semicolon, lexer.Newline:
-		ps.advance()
 		stat, err = nil, nil
 	default:
 		stat, err = ps.simpleStat()
 	}
+	ps.eat(lexer.Semicolon)
 	ps.skipNewLines()
 	if err != nil {
 		errs = append(errs, err)
