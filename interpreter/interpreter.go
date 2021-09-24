@@ -79,10 +79,15 @@ func Exec(params RunParams) []error {
 		return nativeserrors
 	}
 
+	errs := make([]error, 0)
 	var inter interpreter
 	inter.initialize(params)
-	defer inter.cleanup()
-	return []error{inter.run()}
+	err := inter.run()
+	if err != nil {
+		errs = append(errs, err)
+	}
+	errs = append(errs, inter.cleanup()...)
+	return errs
 }
 
 type interpreter struct {
@@ -197,14 +202,23 @@ func (inter *interpreter) executePrint(ps *parser.PrintStat) error {
 			return err
 		}
 		filestr := file.String(inter.getConvfmt())
+		var cl io.Closer
 		switch ps.RedirOp.Type {
 		case lexer.Pipe:
-			w = inter.outprograms.get(filestr, func(name string) io.Closer { return spawnOutCommand(name, inter.stdout, inter.stderr) }).(io.Writer)
+			cl, err = inter.outprograms.get(filestr, func(name string) (io.Closer, error) {
+				return spawnOutCommand(name, inter.stdout, inter.stderr)
+			})
 		case lexer.Greater:
-			w = inter.outfiles.get(filestr, func(name string) io.Closer { return spawnOutFile(name, 0) }).(io.Writer)
+			cl, err = inter.outfiles.get(filestr, func(name string) (io.Closer, error) { return spawnOutFile(name, 0) })
 		case lexer.DoubleGreater:
-			w = inter.outfiles.get(filestr, func(name string) io.Closer { return spawnOutFile(name, os.O_APPEND) }).(io.Writer)
+			cl, err = inter.outfiles.get(filestr, func(name string) (io.Closer, error) {
+				return spawnOutFile(name, os.O_APPEND)
+			})
 		}
+		if err != nil {
+			return inter.runtimeError(ps.Token(), err.Error())
+		}
+		w = cl.(io.Writer)
 	}
 	switch ps.Print.Type {
 	case lexer.Print:
@@ -483,9 +497,11 @@ func (inter *interpreter) evalDollar(de *parser.DollarExpr) (Awkvalue, Awkvalue,
 	return inter.getField(int(ind.Float())), ind, nil
 }
 
+// In case of error, always fail silently and return -1 (this is what other implementation do)
 func (inter *interpreter) evalGetline(gl *parser.GetlineExpr) (Awkvalue, error) {
 	var err error
 	var filestr string
+
 	if gl.File != nil {
 		file, err := inter.eval(gl.File)
 		if err != nil {
@@ -493,19 +509,41 @@ func (inter *interpreter) evalGetline(gl *parser.GetlineExpr) (Awkvalue, error) 
 		}
 		filestr = file.String(inter.getConvfmt())
 	}
+
+	// Handle file
 	var fetchRecord func() (string, error)
 	switch gl.Op.Type {
 	case lexer.Pipe:
-		reader := inter.inprograms.get(filestr, func(name string) io.Closer { return spawnInCommand(name, inter.stdin) }).(io.ByteReader)
-		fetchRecord = func() (string, error) { return inter.nextRecord(reader) }
+		cl, err := inter.inprograms.get(filestr, func(name string) (io.Closer, error) {
+			return spawnInCommand(name, inter.stdin, inter.stderr)
+		})
+		if err != nil {
+			return Awknumber(-1), nil
+		}
+		fetchRecord = func() (string, error) {
+			return inter.nextRecord(cl.(io.ByteReader))
+		}
+		if err != nil {
+			return Awknumber(-1), nil
+		}
 	case lexer.Less:
-		reader := inter.infiles.get(filestr, func(name string) io.Closer { return spawnInFile(name) }).(io.ByteReader)
-		fetchRecord = func() (string, error) { return inter.nextRecord(reader) }
+		cl, err := inter.infiles.get(filestr, func(name string) (io.Closer, error) {
+			return spawnInFile(name)
+		})
+		fetchRecord = func() (string, error) {
+			return inter.nextRecord(cl.(io.ByteReader))
+		}
+		if err != nil {
+			return Awknumber(-1), nil
+		}
 	default:
 		fetchRecord = inter.nextRecordCurrentFile
 	}
+
 	var record string
 	record, err = fetchRecord()
+
+	// Handle return value
 	retval := Awknumber(0)
 	if err == nil {
 		retval.n = 1
@@ -514,6 +552,8 @@ func (inter *interpreter) evalGetline(gl *parser.GetlineExpr) (Awkvalue, error) 
 	} else {
 		retval.n = -1
 	}
+
+	// Handle variable assignment
 	recstr := Awknumericstring(record)
 	if gl.Variable != nil && retval.n > 0 {
 		_, err := inter.evalAssignToLhs(gl.Variable, recstr)
@@ -523,6 +563,7 @@ func (inter *interpreter) evalGetline(gl *parser.GetlineExpr) (Awkvalue, error) 
 	} else if retval.n > 0 {
 		inter.setField(0, recstr)
 	}
+
 	return retval, nil
 }
 
@@ -1182,9 +1223,11 @@ func (inter *interpreter) initializeFunctions(params RunParams) {
 	}
 }
 
-func (inter *interpreter) cleanup() {
-	inter.outprograms.closeAll()
-	inter.outfiles.closeAll()
-	inter.inprograms.closeAll()
-	inter.infiles.closeAll()
+func (inter *interpreter) cleanup() []error {
+	errors := make([]error, 0)
+	errors = append(errors, inter.outprograms.closeAll()...)
+	errors = append(errors, inter.outfiles.closeAll()...)
+	errors = append(errors, inter.inprograms.closeAll()...)
+	errors = append(errors, inter.infiles.closeAll()...)
+	return errors
 }

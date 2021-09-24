@@ -10,7 +10,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -21,13 +20,17 @@ import (
 
 type resources map[string]io.Closer
 
-func (st resources) get(name string, spawner func(string) io.Closer) io.Closer {
+func (st resources) get(name string, spawner func(string) (io.Closer, error)) (io.Closer, error) {
 	s, ok := st[name]
 	if ok {
-		return s
+		return s, nil
 	}
-	st[name] = spawner(name)
-	return st[name]
+	s, err := spawner(name)
+	if err != nil {
+		return nil, err
+	}
+	st[name] = s
+	return s, nil
 }
 
 func (st resources) close(name string) error {
@@ -39,10 +42,15 @@ func (st resources) close(name string) error {
 	return s.Close()
 }
 
-func (st resources) closeAll() {
+func (st resources) closeAll() []error {
+	errors := make([]error, 0)
 	for name := range st {
-		st.close(name)
+		err := st.close(name)
+		if err != nil {
+			errors = append(errors, err)
+		}
 	}
+	return errors
 }
 
 type ByteReadCloser interface {
@@ -70,30 +78,26 @@ func (c outcommand) Close() error {
 	return nil
 }
 
-func spawnOutCommand(name string, stdout io.Writer, stderr io.Writer) outcommand {
+func spawnOutCommand(name string, stdout io.Writer, stderr io.Writer) (outcommand, error) {
 	cmd := exec.Command("sh", "-c", name)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		log.Fatal(err)
+		return outcommand{}, err
 	}
 	if err := cmd.Start(); err != nil {
-		log.Fatal(err)
+		return outcommand{}, err
 	}
 	res := outcommand{
 		stdin: stdin,
 		cmd:   cmd,
 	}
-	return res
+	return res, nil
 }
 
-func spawnOutFile(name string, mode int) io.WriteCloser {
-	f, err := os.OpenFile(name, os.O_CREATE|os.O_WRONLY|mode, 0600)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return f
+func spawnOutFile(name string, mode int) (*os.File, error) {
+	return os.OpenFile(name, os.O_CREATE|os.O_WRONLY|mode, 0600)
 }
 
 type incommand struct {
@@ -112,21 +116,22 @@ func (ic incommand) Close() error {
 	return nil
 }
 
-func spawnInCommand(name string, stdin io.Reader) ByteReadCloser {
+func spawnInCommand(name string, stdin io.Reader, stderr io.Writer) (incommand, error) {
 	cmd := exec.Command("sh", "-c", name)
 	cmd.Stdin = stdin
+	cmd.Stderr = stderr
 	stdoutp, err := cmd.StdoutPipe()
 	if err != nil {
-		log.Fatal(err)
+		return incommand{}, err
 	}
 	if err := cmd.Start(); err != nil {
-		log.Fatal(err)
+		return incommand{}, err
 	}
 	res := incommand{
 		stdout: bufio.NewReader(stdoutp),
 		cmd:    cmd,
 	}
-	return res
+	return res, nil
 }
 
 type infile struct {
@@ -142,16 +147,16 @@ func (inf infile) Close() error {
 	return inf.file.Close()
 }
 
-func spawnInFile(name string) infile {
+func spawnInFile(name string) (infile, error) {
 	file, err := os.Open(name)
 	if err != nil {
-		log.Fatal(err)
+		return infile{}, err
 	}
 	reader := bufio.NewReader(file)
 	return infile{
 		reader: reader,
 		file:   file,
-	}
+	}, nil
 }
 
 func (inter *interpreter) nextRecord(r io.ByteReader) (string, error) {
