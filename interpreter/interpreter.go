@@ -531,9 +531,12 @@ func (inter *interpreter) evalLength(le *parser.LengthExpr) (Awkvalue, error) {
 	if le.Arg == nil {
 		str = inter.toGoString(inter.getField(0))
 	} else {
-		v, err := inter.eval(le.Arg)
+		v, err := inter.evalArrayAllowed(le.Arg)
 		if err != nil {
 			return Awknil(), err
+		}
+		if v.typ == Array {
+			return Awknumber(float64(len(v.array))), nil
 		}
 		str = inter.toGoString(v)
 	}
