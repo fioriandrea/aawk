@@ -1,6 +1,6 @@
 # aawk
 
-My implementation of an AWK interpreter in Go.
+A POSIX-compliant implementation of an AWK interpreter in Go.
 
 # Licence
 
