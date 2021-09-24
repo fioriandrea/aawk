@@ -24,9 +24,15 @@ import (
  */
 func (inter *interpreter) evalNativeFunction(called lexer.Token, f interface{}, exprargs []parser.Expr) (Awkvalue, error) {
 	ftype := reflect.TypeOf(f)
+
+	// Check number of arguments
 	if !ftype.IsVariadic() && ftype.NumIn() != len(exprargs) {
 		return Awknil(), inter.runtimeError(called, fmt.Sprintf("wrong number of arguments (expected %d)", ftype.NumIn()))
+	} else if ftype.IsVariadic() && len(exprargs) < ftype.NumIn()-1 {
+		return Awknil(), inter.runtimeError(called, fmt.Sprintf("wrong number of arguments for varadic function (expected at least %d)", ftype.NumIn()-1))
 	}
+
+	// Collect arguments
 	args := make([]reflect.Value, 0)
 	for i := 0; i < len(exprargs); i++ {
 		expr := exprargs[i]
@@ -34,12 +40,15 @@ func (inter *interpreter) evalNativeFunction(called lexer.Token, f interface{}, 
 		if err != nil {
 			return Awknil(), err
 		}
+
 		var argtype reflect.Type
 		if ftype.IsVariadic() && i >= ftype.NumIn()-1 {
 			argtype = ftype.In(ftype.NumIn() - 1).Elem()
 		} else {
 			argtype = ftype.In(i)
 		}
+
+		// Array checks
 		if awkarg.typ == Array && argtype.Kind() != reflect.Map {
 			return Awknil(), inter.runtimeError(called, "cannot use array in scalar context")
 		} else if awkarg.typ != Array && awkarg.typ != Null && argtype.Kind() == reflect.Map {
@@ -49,16 +58,16 @@ func (inter *interpreter) evalNativeFunction(called lexer.Token, f interface{}, 
 				return Awknil(), inter.runtimeError(expr.Token(), "cannot assing array to non variable")
 			}
 		}
+
 		nativearg := awkvalueToNative(awkarg, argtype, inter.getConvfmt())
 		args = append(args, nativearg)
-		if argtype.Kind() == reflect.Map && awkarg.typ == Null {
-			defer func() {
-				// It must be an id if the type is array
-				id := expr.(*parser.IdExpr)
-				inter.setVariable(id, nativeToAwkvalue(nativearg))
-			}()
+
+		// Assign maps back to undefined variables
+		if id, isid := expr.(*parser.IdExpr); argtype.Kind() == reflect.Map && awkarg.typ == Null && isid {
+			defer inter.setVariable(id, nativeToAwkvalue(nativearg))
 		}
 	}
+
 	ret := reflect.ValueOf(f).Call(args)
 	if len(ret) == 0 {
 		return Awknil(), nil
