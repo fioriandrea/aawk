@@ -8,6 +8,9 @@ package parser
 
 import (
 	"fmt"
+	"io"
+	"regexp"
+	"strings"
 
 	"github.com/fioriandrea/aawk/lexer"
 )
@@ -25,13 +28,60 @@ type parser struct {
 	infunction bool
 }
 
-func Parse(lex lexer.Lexer, nativeFunctions map[string]interface{}) (ResolvedItems, []error) {
-	items, errs := GetItems(lex)
+func CompileFs(fs string) (*regexp.Regexp, error) {
+	if len(fs) <= 1 {
+		return nil, nil
+	}
+	re, err := regexp.Compile(fs)
+	if err != nil {
+		return nil, fmt.Errorf("invalid FS: %s", err.Error())
+	}
+	return re, nil
+}
+
+func ParseCl(cl CommandLine) (CompiledProgram, []error) {
+	errors := make([]error, 0)
+
+	// Parse FS from -F
+	fsre, err := CompileFs(cl.Fs)
+	if err != nil {
+		errors = append(errors, err)
+	}
+
+	for _, preassign := range cl.Preassignments {
+		if !lexer.CommandLineAssignRegex.MatchString(preassign) {
+			errors = append(errors, fmt.Errorf("invalid syntax used for preassignment '%s'", preassign))
+		}
+		splits := strings.Split(preassign, "=")
+		if i, ok := Builtinvars[splits[0]]; ok {
+			// Check FS from -v
+			if i == Fs {
+				var err error
+				if fsre, err = CompileFs(splits[1]); err != nil {
+					errors = append(errors, err)
+				}
+			}
+		}
+	}
+
+	ri, errs := parseProgram(cl.Program, cl.Natives)
+	if len(errs) > 0 {
+		errors = append(errors, errs...)
+	}
+	return CompiledProgram{
+		ResolvedItems: ri,
+		Fsre:          fsre,
+	}, errors
+}
+
+func parseProgram(prog io.RuneReader, nativeFunctions map[string]interface{}) (ResolvedItems, []error) {
+	lex := lexer.NewLexer(prog)
+	items, errs := getItems(lex)
 	if errs != nil {
 		return ResolvedItems{}, errs
 	}
 
-	globalindices, functionindices, err := Resolve(items.All, nativeFunctions)
+	globalindices, functionindices, err := resolve(items.All, nativeFunctions)
 	if err != nil {
 		return ResolvedItems{}, []error{err}
 	}
@@ -42,7 +92,7 @@ func Parse(lex lexer.Lexer, nativeFunctions map[string]interface{}) (ResolvedIte
 	}, nil
 }
 
-func GetItems(lex lexer.Lexer) (Items, []error) {
+func getItems(lex lexer.Lexer) (Items, []error) {
 	ps := parser{
 		lexer: lex,
 	}

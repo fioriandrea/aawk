@@ -35,7 +35,7 @@ type CommandLine struct {
 
 type RunParams struct {
 	CommandLine
-	ResolvedItems parser.ResolvedItems
+	parser.CompiledProgram
 }
 
 type ErrorExit struct {
@@ -47,12 +47,30 @@ func (ee ErrorExit) Error() string {
 }
 
 func ExecuteCL(cl CommandLine) []error {
-	if _, err := regexp.Compile(cl.Fs); err != nil {
-		return []error{fmt.Errorf("invalid FS")}
+	compiled, errs := parser.ParseCl(parser.CommandLine{
+		Program:        cl.Program,
+		Fs:             cl.Fs,
+		Preassignments: cl.Preassignments,
+		Natives:        cl.Natives,
+	})
+	if len(errs) > 0 {
+		return errs
 	}
 
+	errs = Exec(RunParams{
+		CompiledProgram: compiled,
+		CommandLine:     cl,
+	})
+	if len(errs) > 0 {
+		return errs
+	}
+	return nil
+}
+
+func Exec(params RunParams) []error {
+	// Check natives
 	nativeserrors := make([]error, 0)
-	for name, native := range cl.Natives {
+	for name, native := range params.Natives {
 		if err := validateNative(name, native); err != nil {
 			nativeserrors = append(nativeserrors, err)
 		}
@@ -61,27 +79,10 @@ func ExecuteCL(cl CommandLine) []error {
 		return nativeserrors
 	}
 
-	lex := lexer.NewLexer(cl.Program)
-	items, errs := parser.Parse(lex, cl.Natives)
-	if len(errs) > 0 {
-		return errs
-	}
-
-	err := Exec(RunParams{
-		ResolvedItems: items,
-		CommandLine:   cl,
-	})
-	if err != nil {
-		return []error{err}
-	}
-	return nil
-}
-
-func Exec(params RunParams) error {
 	var inter interpreter
 	inter.initialize(params)
 	defer inter.cleanup()
-	return inter.run()
+	return []error{inter.run()}
 }
 
 type interpreter struct {
@@ -114,7 +115,6 @@ type interpreter struct {
 	rangematched map[int]bool
 	fprintfcache map[string][]func(Awkvalue) interface{}
 	fsregex      *regexp.Regexp
-	spaceregex   *regexp.Regexp
 }
 
 var errNext = errors.New("next")
@@ -132,12 +132,12 @@ type rng struct {
 	rngseed int64
 }
 
-func (r *rng) SetSeed(i int64) {
+func (r *rng) setSeed(i int64) {
 	r.rngseed = i
 	r.Seed(i)
 }
 
-func NewRNG(seed int64) rng {
+func newRNG(seed int64) rng {
 	return rng{
 		Rand:    rand.New(rand.NewSource(seed)),
 		rngseed: seed,
@@ -924,26 +924,24 @@ func (inter *interpreter) setVariable(id *parser.IdExpr, v Awkvalue) error {
 	} else if id.Index < 0 && id.LocalIndex >= 0 {
 		inter.locals[id.LocalIndex] = v
 	} else {
-		if id.BuiltinIndex == parser.Fs {
-			return inter.setFs(id.Id, v)
+		err := inter.setBuiltin(id.BuiltinIndex, v)
+		if err != nil {
+			return inter.runtimeError(id.Id, err.Error())
 		}
 		inter.builtins[id.BuiltinIndex] = v
 	}
 	return nil
 }
 
-func (inter *interpreter) setFs(token lexer.Token, v Awkvalue) error {
-	str := v.String(inter.getConvfmt())
-	inter.builtins[parser.Fs] = Awknormalstring(str)
-	if len(str) <= 1 {
-		inter.fsregex = nil
-		return nil
+func (inter *interpreter) setBuiltin(i int, v Awkvalue) error {
+	if i == parser.Fs {
+		re, err := parser.CompileFs(inter.toGoString(v))
+		if err != nil {
+			return err
+		}
+		inter.fsregex = re
 	}
-	re, err := regexp.Compile(str)
-	if err != nil {
-		return inter.runtimeError(token, fmt.Sprint(err))
-	}
-	inter.fsregex = re
+	inter.builtins[i] = v
 	return nil
 }
 
@@ -1082,6 +1080,7 @@ func (inter *interpreter) runEnds() error {
 
 // Initialization
 
+// Assumes params is completely correct (e.g. FS is a valid regex)
 func (inter *interpreter) initialize(params RunParams) {
 	inter.items = params.ResolvedItems
 
@@ -1103,7 +1102,7 @@ func (inter *interpreter) initialize(params RunParams) {
 	inter.outfiles = resources{}
 	inter.inprograms = resources{}
 	inter.infiles = resources{}
-	inter.rng = NewRNG(0)
+	inter.rng = newRNG(0)
 	inter.argindex = 0
 	inter.currentFile = nil
 	inter.stdin = params.Stdin
@@ -1119,16 +1118,15 @@ func (inter *interpreter) initialize(params RunParams) {
 
 func (inter *interpreter) initializeBuiltinVariables(params RunParams) {
 	// General
-	inter.builtins[parser.Convfmt] = Awknormalstring("%.6g")
-	inter.builtins[parser.Fnr] = Awknumber(0)
-	inter.spaceregex = regexp.MustCompile(`\s+`)
-	inter.setFs(lexer.Token{}, Awknormalstring(params.Fs))
-	inter.builtins[parser.Nr] = Awknumber(0)
-	inter.builtins[parser.Ofmt] = Awknormalstring("%.6g")
-	inter.builtins[parser.Ofs] = Awknormalstring(" ")
-	inter.builtins[parser.Ors] = Awknormalstring("\n")
-	inter.builtins[parser.Rs] = Awknormalstring("\n")
-	inter.builtins[parser.Subsep] = Awknormalstring("\034")
+	inter.setBuiltin(parser.Convfmt, Awknormalstring("%.6g"))
+	inter.setBuiltin(parser.Fnr, Awknumber(0))
+	inter.setBuiltin(parser.Fs, Awknumericstring(params.Fs))
+	inter.setBuiltin(parser.Nr, Awknumber(0))
+	inter.setBuiltin(parser.Ofmt, Awknormalstring("%.6g"))
+	inter.setBuiltin(parser.Ofs, Awknormalstring(" "))
+	inter.setBuiltin(parser.Ors, Awknormalstring("\n"))
+	inter.setBuiltin(parser.Rs, Awknormalstring("\n"))
+	inter.setBuiltin(parser.Subsep, Awknormalstring("\034"))
 
 	// ARGC and ARGV
 	argc := len(params.Arguments) + 1
@@ -1137,8 +1135,8 @@ func (inter *interpreter) initializeBuiltinVariables(params RunParams) {
 	for i := 1; i <= argc-1; i++ {
 		argv[fmt.Sprintf("%d", i)] = Awknumericstring(params.Arguments[i-1])
 	}
-	inter.builtins[parser.Argc] = Awknumber(float64(argc))
-	inter.builtins[parser.Argv] = Awkarray(argv)
+	inter.setBuiltin(parser.Argc, Awknumber(float64(argc)))
+	inter.setBuiltin(parser.Argv, Awkarray(argv))
 
 	// ENVIRON
 	environ := Awkarray(map[string]Awkvalue{})
@@ -1146,7 +1144,7 @@ func (inter *interpreter) initializeBuiltinVariables(params RunParams) {
 		splits := strings.Split(envpair, "=")
 		environ.array[splits[0]] = Awknumericstring(splits[1])
 	}
-	inter.builtins[parser.Environ] = environ
+	inter.setBuiltin(parser.Environ, environ)
 
 	// Preassignment from command line
 	for _, str := range params.Preassignments {
@@ -1155,12 +1153,9 @@ func (inter *interpreter) initializeBuiltinVariables(params RunParams) {
 }
 
 func (inter *interpreter) assignCommandLineString(assign string) {
-	if !lexer.CommandLineAssignRegex.MatchString(assign) {
-		return
-	}
 	splits := strings.Split(assign, "=")
 	if i, ok := parser.Builtinvars[splits[0]]; ok {
-		inter.builtins[i] = Awknumericstring(splits[1])
+		inter.setBuiltin(i, Awknumericstring(splits[1]))
 	} else if i, ok := inter.items.Globalindices[splits[0]]; ok {
 		inter.globals[i] = Awknumericstring(splits[1])
 	}

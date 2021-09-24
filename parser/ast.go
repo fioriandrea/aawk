@@ -7,6 +7,7 @@
 package parser
 
 import (
+	"io"
 	"regexp"
 
 	"github.com/fioriandrea/aawk/lexer"
@@ -433,4 +434,16 @@ type ResolvedItems struct {
 	Items
 	Globalindices   map[string]int
 	Functionindices map[string]int
+}
+
+type CommandLine struct {
+	Program        io.RuneReader
+	Fs             string
+	Preassignments []string
+	Natives        map[string]interface{}
+}
+
+type CompiledProgram struct {
+	ResolvedItems
+	Fsre *regexp.Regexp
 }

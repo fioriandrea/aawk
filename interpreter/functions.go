@@ -178,13 +178,13 @@ func (inter *interpreter) evalBuiltinCall(called lexer.Token, args []parser.Expr
 		}
 		ret := inter.rng.rngseed
 		if len(args) == 0 {
-			inter.rng.SetSeed(time.Now().UTC().UnixNano())
+			inter.rng.setSeed(time.Now().UTC().UnixNano())
 		} else {
 			seed, err := inter.eval(args[0])
 			if err != nil {
 				return Awknil(), err
 			}
-			inter.rng.SetSeed(int64(seed.Float()))
+			inter.rng.setSeed(int64(seed.Float()))
 		}
 		return Awknumber(float64(ret)), nil
 	// String functions
