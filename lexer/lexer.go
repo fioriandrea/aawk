@@ -7,10 +7,7 @@
 package lexer
 
 import (
-	"bytes"
 	"fmt"
-	"io"
-	"log"
 	"regexp"
 	"strings"
 	"unicode"
@@ -26,14 +23,14 @@ type Lexer struct {
 	line          int
 	currentRune   rune
 	previousRune  rune
-	reader        io.RuneReader
+	program       []rune
 	previousToken Token
 }
 
 func NewLexer(program []byte) Lexer {
 	lex := Lexer{
-		line:   1,
-		reader: bytes.NewReader(program),
+		line:    1,
+		program: []rune(string(program))[0:0],
 	}
 	lex.advance()
 	return lex
@@ -234,13 +231,17 @@ func (l *Lexer) number() Token {
 			l.advanceInside(&lexeme)
 		}
 	}
+	tounread := 0
 	if l.currentRune == 'e' || l.currentRune == 'E' {
+		tounread++
 		l.advanceInside(&lexeme)
 		if l.currentRune == '+' || l.currentRune == '-' {
+			tounread++
 			l.advanceInside(&lexeme)
 		}
 		if !unicode.IsDigit(l.currentRune) {
-			return l.makeErrorToken(fmt.Sprintf("expected exponent in number literal after '%s'", lexeme.String()))
+			l.unread(tounread)
+			return l.makeToken(Number, lexeme.String()[:len(lexeme.String())-tounread])
 		}
 		for unicode.IsDigit(l.currentRune) {
 			l.advanceInside(&lexeme)
@@ -285,16 +286,18 @@ func (l *Lexer) makeErrorToken(msg string) Token {
 }
 
 func (l *Lexer) advance() rune {
-	c, _, err := l.reader.ReadRune()
-	if err != nil {
-		if err != io.EOF {
-			log.Fatal(err)
-		}
-		c = '\000'
+	var c rune
+	if len(l.program) < cap(l.program) {
+		l.program = l.program[:len(l.program)+1]
+		c = l.program[len(l.program)-1]
 	}
 	l.previousRune = l.currentRune
 	l.currentRune = c
-	return c
+	return l.currentRune
+}
+
+func (l *Lexer) deadvance() {
+	l.program = l.program[:len(l.program)-1]
 }
 
 func (l *Lexer) currentRuneInside(builder *strings.Builder) {
@@ -303,6 +306,15 @@ func (l *Lexer) currentRuneInside(builder *strings.Builder) {
 
 func (l *Lexer) advanceInside(builder *strings.Builder) {
 	l.currentRuneInside(builder)
+	l.advance()
+}
+
+func (l *Lexer) unread(ntounread int) {
+	// +1 for previousRune, +1 for currentRune
+	for i := 0; i < ntounread+2; i++ {
+		l.deadvance()
+	}
+	l.advance()
 	l.advance()
 }
 
