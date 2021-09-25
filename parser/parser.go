@@ -333,7 +333,7 @@ func (ps *parser) stat() (Stat, []error) {
 func (ps *parser) blockStat() (BlockStat, []error) {
 	ps.eat(lexer.LeftCurly)
 	ret, errs := ps.statListUntil(lexer.RightCurly)
-	if !ps.eat(lexer.RightCurly) {
+	if !ps.eat(lexer.RightCurly) && len(errs) == 0 {
 		errs = append(errs, ps.parseErrorAtCurrent("expected '}'"))
 	}
 	return ret, errs
@@ -1380,7 +1380,7 @@ func (ps *parser) checkBeginLhs() bool {
 }
 
 func (ps *parser) checkAllowedAfterStatements() bool {
-        // Terminators and '}' are allowed directly after statements. Another
+	// Terminators and '}' are allowed directly after statements. Another
 	// statement is allowed after another statement if the preceding
 	// statement ends with a '}', a semicolon or a newline
 	return ps.checkTerminator() || ps.check(lexer.RightCurly) || ps.previous.Type == lexer.RightCurly || ps.previous.Type == lexer.Semicolon || ps.previous.Type == lexer.Newline
