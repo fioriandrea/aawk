@@ -109,6 +109,10 @@ func (l *Lexer) NextRegex() Token {
 	}
 }
 
+func IsBuiltinFunction(t TokenType) bool {
+	return t > BeginFuncs && t < EndFuncs
+}
+
 func (l *Lexer) newLine() Token {
 	l.line++
 	l.advance()

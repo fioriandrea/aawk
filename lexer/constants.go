@@ -68,7 +68,6 @@ const (
 	Getline
 	If
 	In
-	Length
 	Next
 	Print
 	Printf
@@ -78,6 +77,7 @@ const (
 	Identifier
 	IdentifierParen
 
+	BeginFuncs // delimiter for start of functions
 	Atan2
 	Close
 	Cos
@@ -85,6 +85,7 @@ const (
 	Gsub
 	Index
 	Int
+	Length
 	Log
 	Match
 	Rand
@@ -93,11 +94,12 @@ const (
 	Sprintf
 	Sqrt
 	Srand
-	Substr
 	Sub
+	Substr
 	System
 	Tolower
 	Toupper
+	EndFuncs // delimiter for end of functions
 
 	Regex
 	String
@@ -123,7 +125,6 @@ var keywords = map[string]TokenType{
 	"getline":  Getline,
 	"if":       If,
 	"in":       In,
-	"length":   Length,
 	"next":     Next,
 	"printf":   Printf,
 	"print":    Print,
@@ -137,6 +138,7 @@ var keywords = map[string]TokenType{
 	"gsub":    Gsub,
 	"index":   Index,
 	"int":     Int,
+	"length":  Length,
 	"log":     Log,
 	"match":   Match,
 	"rand":    Rand,

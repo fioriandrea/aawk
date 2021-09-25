@@ -1130,20 +1130,10 @@ func (ps *parser) termExpr() (Expr, error) {
 				Id: id,
 			}, nil
 		}
-	case lexer.Atan2, lexer.Close, lexer.Cos, lexer.Exp, lexer.Gsub, lexer.Index, lexer.Int, lexer.Log, lexer.Match, lexer.Rand, lexer.Sin, lexer.Split, lexer.Sprintf, lexer.Sqrt, lexer.Srand, lexer.Substr, lexer.Sub, lexer.System, lexer.Tolower, lexer.Toupper:
-		id := ps.current
-		ps.advance()
-		if !ps.eat(lexer.LeftParen) {
-			sub, err = nil, ps.parseErrorAtCurrent("expected '(' after built-in function name")
-			break
-		}
-		sub, err = ps.callExpr(id)
 	case lexer.IdentifierParen:
 		id := ps.current
 		ps.advance()
 		sub, err = ps.callExpr(id)
-	case lexer.Length:
-		sub, err = ps.lengthExpr()
 	case lexer.Getline:
 		sub, err = ps.getlineExpr()
 	case lexer.Slash, lexer.DivAssign:
@@ -1152,6 +1142,20 @@ func (ps *parser) termExpr() (Expr, error) {
 		defer ps.advance()
 		sub, err = nil, ps.parseErrorAtCurrent("")
 	default:
+		if ps.checkBuiltinFunction() {
+			if ps.check(lexer.Length) {
+				sub, err = ps.lengthExpr()
+				break
+			}
+			id := ps.current
+			ps.advance()
+			if !ps.eat(lexer.LeftParen) {
+				sub, err = nil, ps.parseErrorAtCurrent("expected '(' after built-in function name")
+				break
+			}
+			sub, err = ps.callExpr(id)
+			break
+		}
 		defer ps.advance()
 		sub, err = nil, ps.parseErrorAtCurrent("unexpected token")
 	}
@@ -1164,28 +1168,33 @@ func (ps *parser) termExpr() (Expr, error) {
 	return sub, err
 }
 
+// Separate parsing from other builtins due to optional parenthesis
 func (ps *parser) lengthExpr() (Expr, error) {
 	ps.eat(lexer.Length)
 	op := ps.previous
 	if !ps.eat(lexer.LeftParen) {
-		return &LengthExpr{
-			Length: op,
+		return &CallExpr{
+			Called: &IdExpr{
+				Id: op,
+			},
 		}, nil
 	}
-	var expr Expr
+	var args []Expr
 	if !ps.check(lexer.RightParen) {
-		var err error
-		expr, err = ps.expr()
+		expr, err := ps.expr()
 		if err != nil {
 			return nil, err
 		}
+		args = append(args, expr)
 	}
 	if !ps.eat(lexer.RightParen) {
 		return nil, ps.parseErrorAtCurrent("expected closing ')' for 'length'")
 	}
-	return &LengthExpr{
-		Length: op,
-		Arg:    expr,
+	return &CallExpr{
+		Called: &IdExpr{
+			Id: op,
+		},
+		Args: args,
 	}, nil
 }
 
@@ -1391,12 +1400,14 @@ func (ps *parser) checkAllowedAfterExpr() bool {
 }
 
 func (ps *parser) checkAllowedAfterConcat() bool {
-	return ps.check(lexer.Getline, lexer.Dollar, lexer.Not, lexer.Identifier, lexer.IdentifierParen, lexer.Number, lexer.String, lexer.LeftParen)
+	return ps.checkTerminator() || ps.check(lexer.Getline, lexer.Dollar, lexer.Not, lexer.Identifier, lexer.IdentifierParen, lexer.Number, lexer.String, lexer.LeftParen) || ps.checkBuiltinFunction()
+}
+
+func (ps *parser) checkBuiltinFunction() bool {
+	return lexer.IsBuiltinFunction(ps.current.Type)
 }
 
 func (ps *parser) checkEndOfPrintExprList() bool {
-	// stop at rightcurly (e.g. {print "a"}), rightparen (end of func args), pipe , doublegreater and greater (redir)
-	// cannot just check for comma presence because {print "a" print "b"} would pass
 	return ps.checkTerminator() || ps.check(lexer.RightCurly, lexer.RightParen, lexer.RightSquare, lexer.Pipe, lexer.DoubleGreater, lexer.Greater)
 }
 

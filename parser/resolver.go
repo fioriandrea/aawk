@@ -314,8 +314,6 @@ func (res *resolver) expr(ex Expr) error {
 		return res.exprList(e)
 	case *NumberExpr:
 		return res.numberExpr(e)
-	case *LengthExpr:
-		return res.lengthExpr(e)
 	case *RegexExpr:
 		return res.regexExpr(e)
 	}
@@ -527,10 +525,6 @@ func (res *resolver) numberExpr(e *NumberExpr) error {
 	v, _ := strconv.ParseFloat(e.Num.Lexeme, 64)
 	e.NumVal = v
 	return nil
-}
-
-func (res *resolver) lengthExpr(e *LengthExpr) error {
-	return res.expr(e.Arg)
 }
 
 func (res *resolver) regexExpr(e *RegexExpr) error {

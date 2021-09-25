@@ -205,6 +205,21 @@ func (inter *interpreter) evalBuiltinCall(called lexer.Token, args []parser.Expr
 		str := inter.toGoString(v0)
 		substr := inter.toGoString(v1)
 		return Awknumber(float64(indexRuneSlice([]rune(str), []rune(substr)) + 1)), nil
+	case lexer.Length:
+		var str string
+		if len(args) == 0 {
+			str = inter.toGoString(inter.getField(0))
+		} else {
+			v, err := inter.evalArrayAllowed(args[0])
+			if err != nil {
+				return Awknil(), err
+			}
+			if v.typ == Array {
+				return Awknumber(float64(len(v.array))), nil
+			}
+			str = inter.toGoString(v)
+		}
+		return Awknumber(float64(len([]rune(str)))), nil
 	case lexer.Match:
 		if len(args) != 2 {
 			return Awknil(), inter.runtimeError(called, "incorrect number of arguments")

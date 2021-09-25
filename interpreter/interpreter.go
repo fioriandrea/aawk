@@ -380,8 +380,6 @@ func (inter *interpreter) eval(expr parser.Expr) (Awkvalue, error) {
 		val, err = inter.evalBinaryBool(v)
 	case *parser.GetlineExpr:
 		val, err = inter.evalGetline(v)
-	case *parser.LengthExpr:
-		val, err = inter.evalLength(v)
 	case *parser.CallExpr:
 		val, err = inter.evalCall(v)
 	case *parser.InExpr:
@@ -565,23 +563,6 @@ func (inter *interpreter) evalGetline(gl *parser.GetlineExpr) (Awkvalue, error) 
 	}
 
 	return retval, nil
-}
-
-func (inter *interpreter) evalLength(le *parser.LengthExpr) (Awkvalue, error) {
-	var str string
-	if le.Arg == nil {
-		str = inter.toGoString(inter.getField(0))
-	} else {
-		v, err := inter.evalArrayAllowed(le.Arg)
-		if err != nil {
-			return Awknil(), err
-		}
-		if v.typ == Array {
-			return Awknumber(float64(len(v.array))), nil
-		}
-		str = inter.toGoString(v)
-	}
-	return Awknumber(float64(len([]rune(str)))), nil
 }
 
 func (inter *interpreter) evalIn(ine *parser.InExpr) (Awkvalue, error) {
