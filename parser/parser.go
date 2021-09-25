@@ -22,6 +22,7 @@ type parser struct {
 	previous   lexer.Token
 	indollar   bool
 	inprint    bool
+	inpattern  bool
 	ingetline  bool
 	parendepth int
 	nextable   bool
@@ -237,6 +238,8 @@ func (ps *parser) patternActionItem() (*PatternAction, []error) {
 }
 
 func (ps *parser) pattern() (Pattern, error) {
+	ps.inpattern = true
+	defer func() { ps.inpattern = false }()
 	switch ps.current.Type {
 	case lexer.Begin, lexer.End:
 		ps.nextable = false
@@ -730,6 +733,9 @@ func (ps *parser) exprList(eolfn func() bool) ([]Expr, error) {
 
 func (ps *parser) expr() (Expr, error) {
 	sub, err := ps.assignExpr()
+	if err == nil && !ps.inpattern && !ps.checkAllowedAfterExpr() {
+		sub, err = nil, ps.parseErrorAtCurrent("unexpected token after expression")
+	}
 	return sub, err
 }
 
@@ -1162,9 +1168,6 @@ func (ps *parser) termExpr() (Expr, error) {
 	if err == nil && !ps.isInPrint() && !ps.indollar && ps.check(lexer.Pipe) {
 		sub, err = ps.pipeGetlineExpr(sub)
 	}
-	if err == nil && !ps.checkAllowedAfterExpr() {
-		sub, err = nil, ps.parseErrorAtCurrent("unexpected token after term")
-	}
 	return sub, err
 }
 
@@ -1392,11 +1395,11 @@ func (ps *parser) checkBeginLhs() bool {
 }
 
 func (ps *parser) checkBeginStat() bool {
-	return lexer.IsStatement(ps.current.Type)
+	return lexer.IsStatementBegin(ps.current.Type)
 }
 
 func (ps *parser) checkAllowedAfterExpr() bool {
-	return !ps.checkBeginStat()
+	return !ps.checkBeginStat() && !ps.check(lexer.Else)
 }
 
 func (ps *parser) checkAllowedAfterConcat() bool {

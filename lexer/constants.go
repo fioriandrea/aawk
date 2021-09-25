@@ -44,7 +44,6 @@ const (
 	PlusAssign
 	MinusAssign
 	Assign
-	LeftCurly
 	RightCurly
 	LeftSquare
 	RightSquare
@@ -60,13 +59,14 @@ const (
 	Function
 	Getline
 	In
+	Else
 
 	BeginStatements
+	LeftCurly
 	Break
 	Continue
 	Delete
 	Do
-	Else
 	Exit
 	For
 	If
@@ -318,6 +318,6 @@ func IsBuiltinFunction(t TokenType) bool {
 	return t > BeginFuncs && t < EndFuncs
 }
 
-func IsStatement(t TokenType) bool {
+func IsStatementBegin(t TokenType) bool {
 	return t > BeginStatements && t < EndStatements
 }
