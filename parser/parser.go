@@ -1392,7 +1392,7 @@ func (ps *parser) checkBeginLhs() bool {
 }
 
 func (ps *parser) checkBeginStat() bool {
-	return ps.check(lexer.Do, lexer.Print, lexer.Printf, lexer.While, lexer.For, lexer.Function, lexer.Break, lexer.Continue, lexer.Next)
+	return lexer.IsStatement(ps.current.Type)
 }
 
 func (ps *parser) checkAllowedAfterExpr() bool {

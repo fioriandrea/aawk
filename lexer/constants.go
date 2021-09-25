@@ -56,28 +56,28 @@ const (
 	Newline
 
 	Begin
+	End
+	Function
+	Getline
+	In
+
+	BeginStatements
 	Break
 	Continue
 	Delete
 	Do
 	Else
-	End
 	Exit
 	For
-	Function
-	Getline
 	If
-	In
 	Next
 	Print
 	Printf
 	Return
 	While
+	EndStatements
 
-	Identifier
-	IdentifierParen
-
-	BeginFuncs // delimiter for start of functions
+	BeginFuncs
 	Atan2
 	Close
 	Cos
@@ -99,7 +99,10 @@ const (
 	System
 	Tolower
 	Toupper
-	EndFuncs // delimiter for end of functions
+	EndFuncs
+
+	Identifier
+	IdentifierParen
 
 	Regex
 	String
@@ -310,3 +313,11 @@ var punctuations = trienode{
 }
 
 var CommandLineAssignRegex = regexp.MustCompile(`^[_a-zA-Z0-9]+=.*`)
+
+func IsBuiltinFunction(t TokenType) bool {
+	return t > BeginFuncs && t < EndFuncs
+}
+
+func IsStatement(t TokenType) bool {
+	return t > BeginStatements && t < EndStatements
+}
