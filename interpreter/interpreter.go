@@ -209,7 +209,7 @@ func (inter *interpreter) executePrint(ps *parser.PrintStat) error {
 				return spawnOutCommand(name, inter.stdout, inter.stderr)
 			})
 		case lexer.Greater:
-			cl, err = inter.outfiles.get(filestr, func(name string) (io.Closer, error) { return spawnOutFile(name, 0) })
+			cl, err = inter.outfiles.get(filestr, func(name string) (io.Closer, error) { return spawnOutFile(name, os.O_TRUNC) })
 		case lexer.DoubleGreater:
 			cl, err = inter.outfiles.get(filestr, func(name string) (io.Closer, error) {
 				return spawnOutFile(name, os.O_APPEND)
@@ -294,9 +294,9 @@ func (inter *interpreter) executeFor(fs *parser.ForStat) error {
 }
 
 func (inter *interpreter) executeForEach(fes *parser.ForEachStat) error {
-	arr := inter.getVariable(fes.Array)
-	if arr.Typ != Array && arr.Typ != Null {
-		return inter.runtimeError(fes.Array.Id, "cannot do for each on a non array")
+	arr, err := inter.getArrayVariable(fes.Array)
+	if err != nil {
+		return err
 	}
 	for k := range arr.Array {
 		_, err := inter.evalAssignToLhs(fes.Id, Awknormalstring(k))
@@ -349,7 +349,7 @@ func (inter *interpreter) executeDelete(ds *parser.DeleteStat) error {
 		if err != nil {
 			return err
 		}
-		return inter.setVariable(lhs, Awkarray(map[string]Awkvalue{}))
+		return inter.setVariableArrayAllowed(lhs, Awkarray(map[string]Awkvalue{}))
 	}
 	return nil
 }
@@ -895,7 +895,7 @@ func (inter *interpreter) setField(i int, v Awkvalue) {
 		inter.fields[0] = Awknumericstring(res.String())
 	} else if i >= len(inter.fields) {
 		for i >= len(inter.fields) {
-			inter.fields = append(inter.fields, Awknull)
+			inter.fields = append(inter.fields, Awknormalstring(""))
 		}
 		inter.setField(i, v)
 	} else if i == 0 {
@@ -959,12 +959,27 @@ func (inter *interpreter) setVariable(id *parser.IdExpr, v Awkvalue) error {
 }
 
 func (inter *interpreter) setBuiltin(i int, v Awkvalue) error {
-	if i == parser.Fs {
+	switch i {
+	case parser.Fs:
 		re, err := parser.CompileFs(inter.toGoString(v))
 		if err != nil {
 			return err
 		}
 		inter.fsregex = re
+	case parser.Nf:
+		n := int(v.Float())
+		if n < 0 {
+			return fmt.Errorf("cannot assign negative value to NF")
+		}
+		sp, err := inter.split(inter.toGoString(inter.getField(0)), nil)
+		if err != nil {
+			return err
+		}
+		if len(sp) > n {
+			sp = sp[:n]
+		}
+		// TODO: fix this (it's too inefficient)
+		inter.setField(0, Awknormalstring(strings.Join(sp, inter.toGoString(inter.builtins[parser.Ofs]))))
 	}
 	inter.builtins[i] = v
 	return nil

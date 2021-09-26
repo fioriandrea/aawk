@@ -61,7 +61,6 @@ const (
 	In
 	Else
 
-	BeginStatements
 	LeftCurly
 	Break
 	Continue
@@ -75,7 +74,6 @@ const (
 	Printf
 	Return
 	While
-	EndStatements
 
 	BeginFuncs
 	Atan2
@@ -316,8 +314,4 @@ var CommandLineAssignRegex = regexp.MustCompile(`^[_a-zA-Z0-9]+=.*`)
 
 func IsBuiltinFunction(t TokenType) bool {
 	return t > BeginFuncs && t < EndFuncs
-}
-
-func IsStatementBegin(t TokenType) bool {
-	return t > BeginStatements && t < EndStatements
 }

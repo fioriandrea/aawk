@@ -66,7 +66,9 @@ func newResolver() *resolver {
 }
 
 // Take functions defined somewhere else (that is, not in the source code)
-func resolve(items []Item, nativeFunctions map[string]interface{}) (map[string]int, map[string]int, error) {
+func resolve(items []Item, nativeFunctions map[string]interface{}) (map[string]int, map[string]int, []error) {
+	var errors []error
+
 	resolver := newResolver()
 
 	for builtin := range nativeFunctions {
@@ -77,67 +79,62 @@ func resolve(items []Item, nativeFunctions map[string]interface{}) (map[string]i
 		switch it := item.(type) {
 		case *FunctionDef:
 			if _, ok := resolver.functionindices[it.Name.Lexeme]; ok {
-				return nil, nil, resolver.resolveError(it.Name, "function already defined")
+				errors = append(errors, resolver.resolveError(it.Name, "function already defined"))
+				continue
 			}
 			resolver.functionindices[it.Name.Lexeme] = len(resolver.functionindices)
 		}
 	}
 
-	err := resolver.items(items)
-	return resolver.indices, resolver.functionindices, err
+	errors = append(errors, resolver.items(items)...)
+	return resolver.indices, resolver.functionindices, errors
 }
 
-func (res *resolver) items(items []Item) error {
-	var err error
-
+func (res *resolver) items(items []Item) []error {
+	var errors []error
 	for _, item := range items {
 		switch it := item.(type) {
 		case *FunctionDef:
-			err = res.functionDef(it)
-			if err != nil {
-				return err
-			}
+			errors = append(errors, res.functionDef(it)...)
 		case *PatternAction:
-			err = res.patternAction(it)
-			if err != nil {
-				return err
-			}
+			errors = append(errors, res.patternAction(it)...)
 		}
 	}
-	return nil
+	return errors
 }
 
-func (res *resolver) functionDef(fd *FunctionDef) error {
-	var err error
+func (res *resolver) functionDef(fd *FunctionDef) []error {
+	var errors []error
 	res.localindices = map[string]int{}
 	defer func() { res.localindices = nil }()
 	for i, arg := range fd.Args {
 		if _, ok := Builtinvars[arg.Lexeme]; ok {
-			return res.resolveError(arg, "cannot call a function argument the same as a built-in variable")
+			errors = append(errors, res.resolveError(arg, "cannot call a function argument the same as a built-in variable"))
+			continue
 		}
 		res.localindices[arg.Lexeme] = i
 	}
 
-	err = res.blockStat(fd.Body)
-	return err
+	errors = append(errors, res.blockStat(fd.Body)...)
+	return errors
 }
 
-func (res *resolver) patternAction(pa *PatternAction) error {
-	var err error
+func (res *resolver) patternAction(pa *PatternAction) []error {
+	var errors []error
 	switch patt := pa.Pattern.(type) {
 	case *ExprPattern:
-		err = res.exprPattern(patt)
+		err := res.exprPattern(patt)
 		if err != nil {
-			return err
+			errors = append(errors, err)
 		}
 	case *RangePattern:
-		err = res.rangePattern(patt)
+		err := res.rangePattern(patt)
 		if err != nil {
-			return err
+			errors = append(errors, err)
 		}
 	}
-	err = res.blockStat(pa.Action)
-	return err
+	errors = append(errors, res.blockStat(pa.Action)...)
+	return errors
 }
 
 func (res *resolver) exprPattern(ep *ExprPattern) error {
@@ -158,18 +155,15 @@ func (res *resolver) rangePattern(rp *RangePattern) error {
 	return nil
 }
 
-func (res *resolver) blockStat(bs BlockStat) error {
-	var err error
+func (res *resolver) blockStat(bs BlockStat) []error {
+	var errors []error
 	for i := 0; i < len(bs); i++ {
-		err = res.stat(bs[i])
-		if err != nil {
-			return err
-		}
+		errors = append(errors, res.stat(bs[i])...)
 	}
-	return nil
+	return errors
 }
 
-func (res *resolver) stat(s Stat) error {
+func (res *resolver) stat(s Stat) []error {
 	switch ss := s.(type) {
 	case *IfStat:
 		return res.ifStat(ss)
@@ -192,90 +186,82 @@ func (res *resolver) stat(s Stat) error {
 	}
 	return nil
 }
-func (res *resolver) ifStat(is *IfStat) error {
-	var err error
-	err = res.expr(is.Cond)
+func (res *resolver) ifStat(is *IfStat) []error {
+	var errors []error
+	err := res.expr(is.Cond)
 	if err != nil {
-		return err
+		errors = append(errors, err)
 	}
-	err = res.stat(is.Body)
-	if err != nil {
-		return err
-	}
-	err = res.stat(is.ElseBody)
-	if err != nil {
-		return err
-	}
-	return nil
+	errors = append(errors, res.stat(is.Body)...)
+	errors = append(errors, res.stat(is.ElseBody)...)
+	return errors
 }
 
-func (res *resolver) forStat(fs *ForStat) error {
-	var err error
-	err = res.stat(fs.Init)
+func (res *resolver) forStat(fs *ForStat) []error {
+	var errors []error
+	errors = append(errors, res.stat(fs.Init)...)
+	err := res.expr(fs.Cond)
 	if err != nil {
-		return err
+		errors = append(errors, err)
 	}
-	err = res.expr(fs.Cond)
-	if err != nil {
-		return err
-	}
-	err = res.stat(fs.Inc)
-	if err != nil {
-		return err
-	}
-	err = res.stat(fs.Body)
-	if err != nil {
-		return err
-	}
-	return nil
+	errors = append(errors, res.stat(fs.Inc)...)
+	errors = append(errors, res.stat(fs.Body)...)
+	return errors
 }
 
-func (res *resolver) forEachStat(fe *ForEachStat) error {
-	var err error
-	err = res.idExpr(fe.Id)
+func (res *resolver) forEachStat(fe *ForEachStat) []error {
+	var errors []error
+	err := res.idExpr(fe.Id)
 	if err != nil {
-		return err
+		errors = append(errors, err)
 	}
 	err = res.idExpr(fe.Array)
 	if err != nil {
-		return err
+		errors = append(errors, err)
 	}
-	err = res.stat(fe.Body)
-	if err != nil {
-		return err
+	errors = append(errors, res.stat(fe.Body)...)
+	return errors
+}
+
+func (res *resolver) returnStat(rs *ReturnStat) []error {
+	if err := res.expr(rs.ReturnVal); err != nil {
+		return []error{err}
 	}
 	return nil
 }
 
-func (res *resolver) returnStat(rs *ReturnStat) error {
-	return res.expr(rs.ReturnVal)
-}
-
-func (res *resolver) printStat(ps *PrintStat) error {
-	var err error
-	err = res.exprs(ps.Exprs)
+func (res *resolver) printStat(ps *PrintStat) []error {
+	var errors []error
+	err := res.exprs(ps.Exprs)
 	if err != nil {
-		return err
+		errors = append(errors, err)
 	}
 	err = res.expr(ps.File)
 	if err != nil {
-		return err
+		errors = append(errors, err)
+	}
+	return errors
+}
+
+func (res *resolver) exprStat(es *ExprStat) []error {
+	if err := res.expr(es.Expr); err != nil {
+		return []error{err}
 	}
 	return nil
 }
 
-func (res *resolver) exprStat(es *ExprStat) error {
-	return res.expr(es.Expr)
+func (res *resolver) exitStat(ex *ExitStat) []error {
+	if err := res.expr(ex.Status); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
-func (res *resolver) exitStat(ex *ExitStat) error {
-	err := res.expr(ex.Status)
-	return err
-}
-
-func (res *resolver) deleteStat(ds *DeleteStat) error {
-	err := res.lhsExpr(ds.Lhs)
-	return err
+func (res *resolver) deleteStat(ds *DeleteStat) []error {
+	if err := res.lhsExpr(ds.Lhs); err != nil {
+		return []error{err}
+	}
+	return nil
 }
 
 func (res *resolver) expr(ex Expr) error {

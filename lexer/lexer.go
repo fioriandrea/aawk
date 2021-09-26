@@ -72,7 +72,7 @@ func (l *Lexer) Next() Token {
 			return l.string()
 		case unicode.IsLetter(l.currentRune) || l.currentRune == '_':
 			return l.identifier()
-		case unicode.IsDigit(l.currentRune):
+		case unicode.IsDigit(l.currentRune) || l.currentRune == '.':
 			return l.number()
 		default:
 			return l.punctuation()
@@ -86,13 +86,15 @@ func (l *Lexer) NextRegex() Token {
 	line := l.previousToken.Line
 	for !l.atEnd() && l.currentRune != '\n' {
 		if l.currentRune == '\\' {
-			fmt.Fprintf(&lexeme, "%c", '\\')
 			l.advance()
-			l.advanceInside(&lexeme)
+			if l.currentRune != '/' {
+				fmt.Fprintf(&lexeme, "%c", '\\')
+			}
+			l.advanceCurrentInside(&lexeme)
 		} else if l.currentRune == '/' {
 			break
 		} else {
-			l.advanceInside(&lexeme)
+			l.advanceCurrentInside(&lexeme)
 		}
 	}
 	if l.currentRune != '/' {
@@ -101,7 +103,7 @@ func (l *Lexer) NextRegex() Token {
 	l.advance()
 	_, err := regexp.Compile(lexeme.String())
 	if err != nil {
-		return l.makeErrorToken("invalid regex")
+		return l.makeErrorToken(err.Error())
 	}
 	return Token{
 		Lexeme: lexeme.String(),
@@ -204,7 +206,7 @@ func (l *Lexer) string() Token {
 func (l *Lexer) identifier() Token {
 	var lexeme strings.Builder
 	for l.currentRune == '_' || unicode.IsDigit(l.currentRune) || unicode.IsLetter(l.currentRune) {
-		l.advanceInside(&lexeme)
+		l.advanceCurrentInside(&lexeme)
 	}
 	rettype := Identifier
 	if t, ok := keywords[lexeme.String()]; ok {
@@ -222,31 +224,31 @@ func (l *Lexer) identifier() Token {
 func (l *Lexer) number() Token {
 	var lexeme strings.Builder
 	for unicode.IsDigit(l.currentRune) {
-		l.advanceInside(&lexeme)
+		l.advanceCurrentInside(&lexeme)
 	}
 	if l.currentRune == '.' {
-		l.advanceInside(&lexeme)
+		l.advanceCurrentInside(&lexeme)
 		if !unicode.IsDigit(l.currentRune) {
 			return l.makeErrorToken(fmt.Sprintf("expected numbers after '.' in number literal after '%s'", lexeme.String()))
 		}
 		for unicode.IsDigit(l.currentRune) {
-			l.advanceInside(&lexeme)
+			l.advanceCurrentInside(&lexeme)
 		}
 	}
 	tounread := 0
 	if l.currentRune == 'e' || l.currentRune == 'E' {
 		tounread++
-		l.advanceInside(&lexeme)
+		l.advanceCurrentInside(&lexeme)
 		if l.currentRune == '+' || l.currentRune == '-' {
 			tounread++
-			l.advanceInside(&lexeme)
+			l.advanceCurrentInside(&lexeme)
 		}
 		if !unicode.IsDigit(l.currentRune) {
 			l.unread(tounread)
 			return l.makeToken(Number, lexeme.String()[:len(lexeme.String())-tounread])
 		}
 		for unicode.IsDigit(l.currentRune) {
-			l.advanceInside(&lexeme)
+			l.advanceCurrentInside(&lexeme)
 		}
 	}
 	return l.makeTokenFromBuilder(Number, lexeme)
@@ -257,14 +259,14 @@ func (l *Lexer) punctuation() Token {
 	currnode := punctuations
 	for {
 		if v, ok := currnode.longer[l.currentRune]; ok {
-			l.advanceInside(&lexeme)
+			l.advanceCurrentInside(&lexeme)
 			currnode = v
 		} else {
 			break
 		}
 	}
 	if currnode.current == Error {
-		l.advanceInside(&lexeme)
+		l.advanceCurrentInside(&lexeme)
 		return l.makeErrorToken(fmt.Sprintf("undefined operator '%s'", lexeme.String()))
 	}
 	return l.makeTokenFromBuilder(currnode.current, lexeme)
@@ -306,7 +308,7 @@ func (l *Lexer) currentRuneInside(builder *strings.Builder) {
 	fmt.Fprintf(builder, "%c", l.currentRune)
 }
 
-func (l *Lexer) advanceInside(builder *strings.Builder) {
+func (l *Lexer) advanceCurrentInside(builder *strings.Builder) {
 	l.currentRuneInside(builder)
 	l.advance()
 }

@@ -52,12 +52,15 @@ func (inter *interpreter) evalUserCall(fdef *parser.FunctionDef, args []parser.E
 
 			i := i
 			defer func() {
-				if sublocals[i].Typ == Array {
-					v = nullToArray(v)
-				} else {
-					v.Array = nil // Avoid memory leak
+				afterv := inter.getVariable(idexpr)
+				// if assigned array in the meantime
+				if afterv.Typ != Array {
+					var res Awkvalue
+					if sublocals[i].Typ == Array {
+						res = nullToArray(v)
+					}
+					inter.setVariableArrayAllowed(idexpr, res)
 				}
-				inter.setVariableArrayAllowed(idexpr, v)
 			}()
 		}
 
@@ -422,22 +425,26 @@ func system(cmdstr string, stdin io.Reader, stdout io.Writer, stderr io.Writer) 
 	return 0
 }
 
-func (inter *interpreter) computeFmtConversions(printtok lexer.Token, s string) (types []func(Awkvalue) interface{}, err error) {
+func (inter *interpreter) computeFmtConversions(printtok lexer.Token, s string) (convs []func(Awkvalue) interface{}, err error) {
 	if stored, ok := inter.fprintfcache[s]; ok {
 		return stored, nil
 	}
 
-	tostr := func(v Awkvalue) interface{} {
+	tostring := func(v Awkvalue) interface{} {
 		return inter.toGoString(v)
+	}
+	tochar := func(v Awkvalue) interface{} {
+		s := inter.toGoString(v)
+		if len(s) == 0 {
+			return '\000'
+		}
+		return s[0]
 	}
 	tofloat := func(v Awkvalue) interface{} {
 		return v.Float()
 	}
 	toint := func(v Awkvalue) interface{} {
 		return int(v.Float())
-	}
-	tobool := func(v Awkvalue) interface{} {
-		return v.Bool()
 	}
 
 	for i := 0; i < len(s); i++ {
@@ -448,42 +455,52 @@ func (inter *interpreter) computeFmtConversions(printtok lexer.Token, s string) 
 		if i < len(s) && s[i] == '%' {
 			continue
 		}
-		if i < len(s) && strings.Contains("+-# 0", s[i:i+1]) {
+		// Flags
+		for i < len(s) && strings.Contains("+-# 0", s[i:i+1]) {
 			i++
 		}
 		if i < len(s) && s[i] == '*' {
-			types = append(types, toint)
+			convs = append(convs, toint)
 			i++
 		}
+
+		// Field width
 		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
 			i++
 		}
-		if i < len(s) && s[i] == '.' {
+
+		// Precision
+		if s[i] == '*' {
+			convs = append(convs, toint)
+		} else if i < len(s) && s[i] == '.' {
 			i++
+			for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+				i++
+			}
 		}
-		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
-			i++
-		}
+
 		if i >= len(s) {
 			return nil, inter.runtimeError(printtok, "expected format type at end of string")
 		}
+
+		// Conversion specifier characters
 		switch s[i] {
-		case 't': // Boolean
-			types = append(types, tobool)
-		case 'c', 'd', 'o', 'O', 'U': // Integer
-			types = append(types, toint)
-		case 'b', 'e', 'E', 'f', 'F', 'g', 'G', 'x', 'X': // Float
-			types = append(types, tofloat)
-		case 's', 'q', 'v': // String
-			types = append(types, tostr)
+		case 'a', 'A', 'f', 'F', 'e', 'E', 'g', 'G':
+			convs = append(convs, tofloat)
+		case 'd', 'i', 'o', 'u', 'x', 'X':
+			convs = append(convs, toint)
+		case 'c':
+			convs = append(convs, tochar)
+		case 's':
+			convs = append(convs, tostring)
 		default:
-			return nil, inter.runtimeError(printtok, fmt.Sprintf("unknown format %c", s[i]))
+			return nil, inter.runtimeError(printtok, fmt.Sprintf("unknown format %c in string '%s'", s[i], s))
 		}
 	}
 	if len(inter.fprintfcache) < 100 {
-		inter.fprintfcache[s] = types
+		inter.fprintfcache[s] = convs
 	}
-	return types, nil
+	return convs, nil
 }
 
 func (inter *interpreter) fprintf(w io.Writer, print lexer.Token, exprs []parser.Expr) error {
@@ -562,25 +579,35 @@ func generalsub(inter *interpreter, called lexer.Token, args []parser.Expr, glob
 		return Awknull, err
 	}
 	repl := inter.toGoString(vrepl)
+	var str string
+	var assign func(string)
 	if args[2] == nil {
-		res := sub(re, repl, inter.toGoString(inter.getField(0)), global)
-		inter.setField(0, Awknormalstring(res))
+		str = inter.toGoString(inter.getField(0))
+		assign = func(s string) {
+			inter.setField(0, Awknormalstring(s))
+		}
 	} else {
 		if lhs, islhs := args[2].(parser.LhsExpr); islhs {
 			v, err := inter.eval(lhs)
 			if err != nil {
 				return Awknull, err
 			}
-			res := sub(re, repl, inter.toGoString(v), global)
-			inter.evalAssignToLhs(lhs, Awknormalstring(res))
+			str = inter.toGoString(v)
+			assign = func(s string) {
+				inter.evalAssignToLhs(lhs, Awknormalstring(s))
+			}
 		} else {
 			return Awknull, inter.runtimeError(args[2].Token(), "expected lhs")
 		}
 	}
-	return Awknull, nil
+	res, count := sub(re, repl, str, global)
+	if count > 0 { // to avoid recomputation of $0 in case a field is lhs
+		assign(res)
+	}
+	return Awknumber(float64(count)), nil
 }
 
-func sub(re *regexp.Regexp, repl string, src string, global bool) string {
+func sub(re *regexp.Regexp, repl string, src string, global bool) (string, int) {
 	// Quoting the manpage: "An <ampersand> preceded with  a <backslash>
 	// shall  be interpreted as the literal <ampersand> character. An
 	// occurrence of two consecutive <backslash> characters shall be
@@ -589,7 +616,7 @@ func sub(re *regexp.Regexp, repl string, src string, global bool) string {
 	// character) shall be treated as a literal <backslash> character."
 
 	var count int
-	return re.ReplaceAllStringFunc(src, func(matched string) string {
+	res := re.ReplaceAllStringFunc(src, func(matched string) string {
 		if !global && count > 0 {
 			return matched
 		}
@@ -618,6 +645,7 @@ func sub(re *regexp.Regexp, repl string, src string, global bool) string {
 		}
 		return string(b)
 	})
+	return res, count
 }
 
 func indexRuneSlice(s []rune, t []rune) int {

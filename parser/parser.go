@@ -83,13 +83,13 @@ func parseProgram(prog io.Reader, nativeFunctions map[string]interface{}) (Resol
 	}
 	lex := lexer.NewLexer(b)
 	items, errs := getItems(lex)
-	if errs != nil {
+	if len(errs) > 0 {
 		return ResolvedItems{}, errs
 	}
 
-	globalindices, functionindices, err := resolve(items.All, nativeFunctions)
-	if err != nil {
-		return ResolvedItems{}, []error{err}
+	globalindices, functionindices, errs := resolve(items.All, nativeFunctions)
+	if len(errs) > 0 {
+		return ResolvedItems{}, errs
 	}
 	return ResolvedItems{
 		Items:           items,
@@ -283,9 +283,7 @@ func (ps *parser) statListUntil(types ...lexer.TokenType) (BlockStat, []error) {
 		stat, errs := ps.stat()
 		if len(errs) > 0 {
 			errors = append(errors, errs...)
-			for !lexer.IsStatementBegin(ps.current.Type) && !ps.check(types...) && ps.current.Type != lexer.Eof {
-				ps.advance()
-			}
+			ps.synchronize(types...)
 			continue
 		}
 		stats = append(stats, stat)
@@ -1129,6 +1127,7 @@ func (ps *parser) termExpr() (Expr, error) {
 		sub, err = ps.getlineExpr()
 	case lexer.Slash, lexer.DivAssign:
 		sub, err = ps.regexExpr()
+		ps.advance()
 	case lexer.Error:
 		defer ps.advance()
 		sub, err = nil, ps.parseErrorAtCurrent("")
@@ -1191,9 +1190,8 @@ func (ps *parser) regexExpr() (Expr, error) {
 	if ps.current.Type == lexer.Error {
 		return nil, ps.parseErrorAtCurrent("")
 	}
-	ps.advance()
 	return &RegexExpr{
-		Regex: ps.previous,
+		Regex: ps.current,
 	}, nil
 }
 
@@ -1224,7 +1222,7 @@ func (ps *parser) pipeGetlineExpr(prog Expr) (Expr, error) {
 	getline := ps.previous
 	var variable LhsExpr
 	if ps.checkBeginLhs() {
-		varexpr, err := ps.termExpr()
+		varexpr, err := ps.dollarExpr()
 		if err != nil {
 			return nil, err
 		}
@@ -1249,7 +1247,7 @@ func (ps *parser) getlineExpr() (Expr, error) {
 	getline := ps.previous
 	var variable LhsExpr
 	if ps.checkBeginLhs() {
-		varexpr, err := ps.expr()
+		varexpr, err := ps.dollarExpr()
 		if err != nil {
 			return nil, err
 		}
@@ -1264,7 +1262,7 @@ func (ps *parser) getlineExpr() (Expr, error) {
 	if ps.eat(lexer.Less) {
 		op = ps.previous
 		var err error
-		file, err = ps.expr()
+		file, err = ps.unaryExpr()
 		if err != nil {
 			return nil, err
 		}
@@ -1373,6 +1371,13 @@ func (ps *parser) skipNewLines() {
 	for ps.check(lexer.Newline) {
 		ps.advance()
 	}
+}
+
+func (ps *parser) synchronize(types ...lexer.TokenType) {
+	for !ps.checkTerminator() {
+		ps.advance()
+	}
+	ps.advance()
 }
 
 func (ps *parser) checkBeginLhs() bool {
