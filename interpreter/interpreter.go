@@ -402,11 +402,11 @@ func (inter *interpreter) evalArrayAllowed(expr parser.Expr) (Awkvalue, error) {
 func (inter *interpreter) evalBinary(b *parser.BinaryExpr) (Awkvalue, error) {
 	left, err := inter.eval(b.Left)
 	if err != nil {
-		return Awknil(), err
+		return Awknil, err
 	}
 	right, err := inter.eval(b.Right)
 	if err != nil {
-		return Awknil(), err
+		return Awknil, err
 	}
 	switch b.Op.Type {
 	case lexer.Plus:
@@ -417,12 +417,12 @@ func (inter *interpreter) evalBinary(b *parser.BinaryExpr) (Awkvalue, error) {
 		return Awknumber(left.Float() * right.Float()), nil
 	case lexer.Slash:
 		if right.Float() == 0 {
-			return Awknil(), inter.runtimeError(b.Right.Token(), "attempt to divide by 0")
+			return Awknil, inter.runtimeError(b.Right.Token(), "attempt to divide by 0")
 		}
 		return Awknumber(left.Float() / right.Float()), nil
 	case lexer.Percent:
 		if right.Float() == 0 {
-			return Awknil(), inter.runtimeError(b.Right.Token(), "attempt to divide by 0")
+			return Awknil, inter.runtimeError(b.Right.Token(), "attempt to divide by 0")
 		}
 		return Awknumber(math.Mod(left.Float(), right.Float())), nil
 	case lexer.Caret:
@@ -472,7 +472,7 @@ func (inter *interpreter) evalBinary(b *parser.BinaryExpr) (Awkvalue, error) {
 			return Awknumber(0), nil
 		}
 	}
-	return Awknil(), nil
+	return Awknil, nil
 }
 
 func (inter *interpreter) evalBinaryBool(bb *parser.BinaryBoolExpr) (Awkvalue, error) {
@@ -490,7 +490,7 @@ func (inter *interpreter) evalBinaryBool(bb *parser.BinaryBoolExpr) (Awkvalue, e
 func (inter *interpreter) evalDollar(de *parser.DollarExpr) (Awkvalue, Awkvalue, error) {
 	ind, err := inter.eval(de.Field)
 	if err != nil {
-		return Awknil(), Awknil(), err
+		return Awknil, Awknil, err
 	}
 	return inter.getField(int(ind.Float())), ind, nil
 }
@@ -503,7 +503,7 @@ func (inter *interpreter) evalGetline(gl *parser.GetlineExpr) (Awkvalue, error) 
 	if gl.File != nil {
 		file, err := inter.eval(gl.File)
 		if err != nil {
-			return Awknil(), err
+			return Awknil, err
 		}
 		filestr = file.String(inter.getConvfmt())
 	}
@@ -556,7 +556,7 @@ func (inter *interpreter) evalGetline(gl *parser.GetlineExpr) (Awkvalue, error) 
 	if gl.Variable != nil && retval.n > 0 {
 		_, err := inter.evalAssignToLhs(gl.Variable, recstr)
 		if err != nil {
-			return Awknil(), err
+			return Awknil, err
 		}
 	} else if retval.n > 0 {
 		inter.setField(0, recstr)
@@ -575,7 +575,7 @@ func (inter *interpreter) evalIn(ine *parser.InExpr) (Awkvalue, error) {
 		elem, err = inter.eval(v)
 	}
 	if err != nil {
-		return Awknil(), err
+		return Awknil, err
 	}
 	v := inter.getVariable(ine.Right)
 	if v.typ != Array {
@@ -619,11 +619,11 @@ func (inter *interpreter) evalRegexExpr(re *parser.RegexExpr) (Awkvalue, error) 
 func (inter *interpreter) evalMatchExpr(me *parser.MatchExpr) (Awkvalue, error) {
 	left, err := inter.eval(me.Left)
 	if err != nil {
-		return Awknil(), err
+		return Awknil, err
 	}
 	rightre, err := inter.evalRegex(me.Right)
 	if err != nil {
-		return Awknil(), err
+		return Awknil, err
 	}
 	res := rightre.MatchString(inter.toGoString(left))
 	if me.Op.Type == lexer.NotTilde {
@@ -660,14 +660,14 @@ func (inter *interpreter) evalRegexFromString(retok lexer.Token, str string) (*r
 func (inter *interpreter) evalAnd(bb *parser.BinaryBoolExpr) (Awkvalue, error) {
 	left, err := inter.eval(bb.Left)
 	if err != nil {
-		return Awknil(), err
+		return Awknil, err
 	}
 	if !left.Bool() {
 		return Awknumber(0), nil
 	}
 	right, err := inter.eval(bb.Right)
 	if err != nil {
-		return Awknil(), err
+		return Awknil, err
 	}
 	if right.Bool() {
 		return Awknumber(1), nil
@@ -679,14 +679,14 @@ func (inter *interpreter) evalAnd(bb *parser.BinaryBoolExpr) (Awkvalue, error) {
 func (inter *interpreter) evalOr(bb *parser.BinaryBoolExpr) (Awkvalue, error) {
 	left, err := inter.eval(bb.Left)
 	if err != nil {
-		return Awknil(), err
+		return Awknil, err
 	}
 	if left.Bool() {
 		return Awknumber(1), nil
 	}
 	right, err := inter.eval(bb.Right)
 	if err != nil {
-		return Awknil(), err
+		return Awknil, err
 	}
 	if right.Bool() {
 		return Awknumber(1), nil
@@ -723,7 +723,7 @@ func (inter *interpreter) compareValues(left, right Awkvalue) float64 {
 func (inter *interpreter) evalUnary(u *parser.UnaryExpr) (Awkvalue, error) {
 	right, err := inter.eval(u.Right)
 	if err != nil {
-		return Awknil(), err
+		return Awknil, err
 	}
 	res := Awknumber(0)
 	switch u.Op.Type {
@@ -744,7 +744,7 @@ func (inter *interpreter) evalUnary(u *parser.UnaryExpr) (Awkvalue, error) {
 func (inter *interpreter) evalAssign(a *parser.AssignExpr) (Awkvalue, error) {
 	right, err := inter.eval(a.Right)
 	if err != nil {
-		return Awknil(), err
+		return Awknil, err
 	}
 	res, err := inter.evalAssignToLhs(a.Left, right)
 	return res, err
@@ -753,7 +753,7 @@ func (inter *interpreter) evalAssign(a *parser.AssignExpr) (Awkvalue, error) {
 func (inter *interpreter) evalPreIncrement(pr *parser.PreIncrementExpr) (Awkvalue, error) {
 	_, ival, err := inter.evalIncrement(pr.IncrementExpr)
 	if err != nil {
-		return Awknil(), err
+		return Awknil, err
 	}
 	return ival, nil
 }
@@ -761,7 +761,7 @@ func (inter *interpreter) evalPreIncrement(pr *parser.PreIncrementExpr) (Awkvalu
 func (inter *interpreter) evalPostIncrement(po *parser.PostIncrementExpr) (Awkvalue, error) {
 	val, _, err := inter.evalIncrement(po.IncrementExpr)
 	if err != nil {
-		return Awknil(), err
+		return Awknil, err
 	}
 	return val, nil
 }
@@ -770,19 +770,19 @@ func (inter *interpreter) evalLhs(lhs parser.LhsExpr) (Awkvalue, Awkvalue, error
 	switch l := lhs.(type) {
 	case *parser.IdExpr:
 		v, err := inter.evalId(l)
-		return v, Awknil(), err
+		return v, Awknil, err
 	case *parser.DollarExpr:
 		return inter.evalDollar(l)
 	case *parser.IndexingExpr:
 		return inter.evalIndexing(l)
 	}
-	return Awknil(), Awknil(), nil
+	return Awknil, Awknil, nil
 }
 
 func (inter *interpreter) evalIncrement(inc *parser.IncrementExpr) (Awkvalue, Awkvalue, error) {
 	varval, index, err := inter.evalLhs(inc.Lhs)
 	if err != nil {
-		return Awknil(), Awknil(), err
+		return Awknil, Awknil, err
 	}
 	val := Awknumber(varval.Float())
 	ival := Awknumber(0)
@@ -794,7 +794,7 @@ func (inter *interpreter) evalIncrement(inc *parser.IncrementExpr) (Awkvalue, Aw
 	}
 	_, err = inter.evalAssignToLhsIndex(inc.Lhs, index, ival)
 	if err != nil {
-		return Awknil(), Awknil(), err
+		return Awknil, Awknil, err
 	}
 	return val, ival, nil
 }
@@ -802,7 +802,7 @@ func (inter *interpreter) evalIncrement(inc *parser.IncrementExpr) (Awkvalue, Aw
 func (inter *interpreter) evalAssignToLhs(lhs parser.LhsExpr, val Awkvalue) (Awkvalue, error) {
 	_, index, err := inter.evalLhs(lhs)
 	if err != nil {
-		return Awknil(), err
+		return Awknil, err
 	}
 	return inter.evalAssignToLhsIndex(lhs, index, val)
 }
@@ -811,11 +811,11 @@ func (inter *interpreter) evalAssignToLhsIndex(lhs parser.LhsExpr, index Awkvalu
 	switch left := lhs.(type) {
 	case *parser.IdExpr:
 		if inter.getVariable(left).typ == Array {
-			return Awknil(), inter.runtimeError(left.Token(), "cannot use array in scalar context")
+			return Awknil, inter.runtimeError(left.Token(), "cannot use array in scalar context")
 		}
 		err := inter.setVariable(left, val)
 		if err != nil {
-			return Awknil(), err
+			return Awknil, err
 		}
 	case *parser.DollarExpr:
 		inter.setField(int(index.Float()), val)
@@ -826,7 +826,7 @@ func (inter *interpreter) evalAssignToLhsIndex(lhs parser.LhsExpr, index Awkvalu
 			inter.setVariable(left.Id, arrval)
 		}
 		if arrval.typ != Array {
-			return Awknil(), inter.runtimeError(left.Token(), "cannot index scalar variable")
+			return Awknil, inter.runtimeError(left.Token(), "cannot index scalar variable")
 		}
 		arrval.array[inter.toGoString(index)] = val
 	}
@@ -836,7 +836,7 @@ func (inter *interpreter) evalAssignToLhsIndex(lhs parser.LhsExpr, index Awkvalu
 func (inter *interpreter) evalTernary(te *parser.TernaryExpr) (Awkvalue, error) {
 	cond, err := inter.eval(te.Cond)
 	if err != nil {
-		return Awknil(), err
+		return Awknil, err
 	}
 	if cond.Bool() {
 		return inter.eval(te.Expr0)
@@ -848,7 +848,7 @@ func (inter *interpreter) evalTernary(te *parser.TernaryExpr) (Awkvalue, error) 
 func (inter *interpreter) evalId(i *parser.IdExpr) (Awkvalue, error) {
 	v := inter.getVariable(i)
 	if v.typ == Array {
-		return Awknil(), inter.runtimeError(i.Token(), "cannot use array in scalar context")
+		return Awknil, inter.runtimeError(i.Token(), "cannot use array in scalar context")
 	}
 	return v, nil
 }
@@ -856,16 +856,16 @@ func (inter *interpreter) evalId(i *parser.IdExpr) (Awkvalue, error) {
 func (inter *interpreter) evalIndexing(i *parser.IndexingExpr) (Awkvalue, Awkvalue, error) {
 	v, err := inter.getArrayVariable(i.Id)
 	if err != nil {
-		return Awknil(), Awknil(), err
+		return Awknil, Awknil, err
 	}
 	index, err := inter.evalIndex(i.Index)
 	if err != nil {
-		return Awknil(), Awknil(), err
+		return Awknil, Awknil, err
 	}
 	res, ok := v.array[index.str]
 	// Mentioning an index makes it part of the array keys
 	if !ok {
-		v.array[index.str] = Awknil()
+		v.array[index.str] = Awknil
 	}
 	return res, index, nil
 }
@@ -875,7 +875,7 @@ func (inter *interpreter) evalIndex(ind []parser.Expr) (Awkvalue, error) {
 	for _, expr := range ind {
 		res, err := inter.eval(expr)
 		if err != nil {
-			return Awknil(), err
+			return Awknil, err
 		}
 		indices = append(indices, inter.toGoString(res))
 	}
@@ -884,7 +884,7 @@ func (inter *interpreter) evalIndex(ind []parser.Expr) (Awkvalue, error) {
 
 func (inter *interpreter) getField(i int) Awkvalue {
 	if i < 0 || i >= len(inter.fields) {
-		return Awknil()
+		return Awknil
 	}
 	return inter.fields[i]
 }
@@ -902,7 +902,7 @@ func (inter *interpreter) setField(i int, v Awkvalue) {
 		inter.fields[0] = Awknumericstring(res.String())
 	} else if i >= len(inter.fields) {
 		for i >= len(inter.fields) {
-			inter.fields = append(inter.fields, Awknil())
+			inter.fields = append(inter.fields, Awknil)
 		}
 		inter.setField(i, v)
 	} else if i == 0 {
@@ -935,11 +935,11 @@ func (inter *interpreter) getArrayVariable(id *parser.IdExpr) (Awkvalue, error) 
 	case Null:
 		err := inter.setVariable(id, Awkarray(map[string]Awkvalue{}))
 		if err != nil {
-			return Awknil(), err
+			return Awknil, err
 		}
 		return inter.getArrayVariable(id)
 	default:
-		return Awknil(), inter.runtimeError(id.Token(), "cannot use scalar in array context")
+		return Awknil, inter.runtimeError(id.Token(), "cannot use scalar in array context")
 	}
 }
 

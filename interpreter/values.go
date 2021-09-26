@@ -23,6 +23,10 @@ const (
 
 type Awkvaluetype int
 
+// Why a struct instead of an interface, you might ask. Interfaces allocated
+// too much memory (strings don't fit into an interface), whereas structs do
+// not have this problem. The ideal would have been to have C-style unions.
+
 type Awkvalue struct {
 	typ   Awkvaluetype
 	n     float64
@@ -98,9 +102,7 @@ func Awkarray(m map[string]Awkvalue) Awkvalue {
 	}
 }
 
-func Awknil() Awkvalue {
-	return Awkvalue{}
-}
+var Awknil = Awkvalue{}
 
 func (inter *interpreter) toGoString(v Awkvalue) string {
 	return v.String(inter.getConvfmt())
