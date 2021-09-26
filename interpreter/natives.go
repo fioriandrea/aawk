@@ -28,9 +28,9 @@ func (inter *interpreter) evalNativeFunction(called lexer.Token, f interface{}, 
 
 	// Check number of arguments
 	if !ftype.IsVariadic() && ftype.NumIn() != len(exprargs) {
-		return Awknil, inter.runtimeError(called, fmt.Sprintf("wrong number of arguments (expected %d)", ftype.NumIn()))
+		return Awknull, inter.runtimeError(called, fmt.Sprintf("wrong number of arguments (expected %d)", ftype.NumIn()))
 	} else if ftype.IsVariadic() && len(exprargs) < ftype.NumIn()-1 {
-		return Awknil, inter.runtimeError(called, fmt.Sprintf("wrong number of arguments for varadic function (expected at least %d)", ftype.NumIn()-1))
+		return Awknull, inter.runtimeError(called, fmt.Sprintf("wrong number of arguments for varadic function (expected at least %d)", ftype.NumIn()-1))
 	}
 
 	// Collect arguments
@@ -39,7 +39,7 @@ func (inter *interpreter) evalNativeFunction(called lexer.Token, f interface{}, 
 		expr := exprargs[i]
 		awkarg, err := inter.evalArrayAllowed(expr)
 		if err != nil {
-			return Awknil, err
+			return Awknull, err
 		}
 
 		var argtype reflect.Type
@@ -50,19 +50,19 @@ func (inter *interpreter) evalNativeFunction(called lexer.Token, f interface{}, 
 		}
 
 		// Array checks
-		if awkarg.typ == Array && argtype.Kind() != reflect.Map {
-			return Awknil, inter.runtimeError(called, "cannot use array in scalar context")
-		} else if awkarg.typ != Array && awkarg.typ != Null && argtype.Kind() == reflect.Map {
-			return Awknil, inter.runtimeError(called, "cannot use scalar in array context")
-		} else if awkarg.typ == Null && argtype.Kind() == reflect.Map {
+		if awkarg.Typ == Array && argtype.Kind() != reflect.Map {
+			return Awknull, inter.runtimeError(called, "cannot use array in scalar context")
+		} else if awkarg.Typ != Array && awkarg.Typ != Null && argtype.Kind() == reflect.Map {
+			return Awknull, inter.runtimeError(called, "cannot use scalar in array context")
+		} else if awkarg.Typ == Null && argtype.Kind() == reflect.Map {
 			if _, ok := expr.(*parser.IdExpr); !ok {
-				return Awknil, inter.runtimeError(expr.Token(), "cannot assing array to non variable")
+				return Awknull, inter.runtimeError(expr.Token(), "cannot assing array to non variable")
 			}
 		}
 
 		// Assign maps to undefined variables
-		if id, isid := expr.(*parser.IdExpr); argtype.Kind() == reflect.Map && awkarg.typ == Null && isid {
-			awkarg = Awkarray(map[string]Awkvalue{})
+		if id, isid := expr.(*parser.IdExpr); argtype.Kind() == reflect.Map && awkarg.Typ == Null && isid {
+			awkarg = nullToArray(awkarg)
 			inter.setVariable(id, awkarg)
 		}
 
@@ -73,7 +73,7 @@ func (inter *interpreter) evalNativeFunction(called lexer.Token, f interface{}, 
 
 	ret := reflect.ValueOf(f).Call(args)
 	if len(ret) == 0 {
-		return Awknil, nil
+		return Awknull, nil
 	} else if len(ret) == 1 {
 		return nativeToAwkvalue(ret[0]), nil
 	} else {
@@ -110,7 +110,7 @@ func awkvalueToNative(v Awkvalue, nativetype reflect.Type, convfmt string) refle
 	case reflect.String:
 		return reflect.ValueOf(v.String(convfmt))
 	case reflect.Map:
-		return reflect.ValueOf(v.array)
+		return reflect.ValueOf(v.Array)
 	case reflect.Struct:
 		return reflect.ValueOf(v)
 	}
@@ -167,9 +167,9 @@ func isNativeTypeCompatible(ntype reflect.Type) bool {
 	if isNativeTypeCompatibleScalar(ntype) {
 		return true
 	} else if ntype.Kind() == reflect.Struct {
-		return ntype == reflect.TypeOf(Awknil)
+		return ntype == reflect.TypeOf(Awknull)
 	} else if ntype.Kind() == reflect.Map {
-		return ntype.Key().Kind() == reflect.String && ntype.Elem() == reflect.TypeOf(Awknil)
+		return ntype.Key().Kind() == reflect.String && ntype.Elem() == reflect.TypeOf(Awknull)
 	} else {
 		return false
 	}

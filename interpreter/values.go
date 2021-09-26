@@ -28,10 +28,10 @@ type Awkvaluetype int
 // not have this problem. The ideal would have been to have C-style unions.
 
 type Awkvalue struct {
-	typ   Awkvaluetype
-	n     float64
-	str   string
-	array map[string]Awkvalue
+	Typ   Awkvaluetype
+	N     float64
+	Str   string
+	Array map[string]Awkvalue
 }
 
 func stringToNumber(s string) float64 {
@@ -49,30 +49,30 @@ func numberToString(n float64, format string) string {
 }
 
 func (v Awkvalue) Float() float64 {
-	if v.typ == Normalstring {
-		return stringToNumber(v.str)
+	if v.Typ == Normalstring {
+		return stringToNumber(v.Str)
 	}
-	return v.n
+	return v.N
 }
 
 func (v Awkvalue) Bool() bool {
-	if v.typ == Normalstring {
-		return v.str != ""
+	if v.Typ == Normalstring {
+		return v.Str != ""
 	}
-	return v.n != 0
+	return v.N != 0
 }
 
 func (v Awkvalue) String(format string) string {
-	if v.typ != Number {
-		return v.str
+	if v.Typ != Number {
+		return v.Str
 	}
-	return numberToString(v.n, format)
+	return numberToString(v.N, format)
 }
 
 func Awknormalstring(s string) Awkvalue {
 	return Awkvalue{
-		typ: Normalstring,
-		str: s,
+		Typ: Normalstring,
+		Str: s,
 	}
 }
 
@@ -82,28 +82,37 @@ func Awknumericstring(s string) Awkvalue {
 		return Awknormalstring(s)
 	}
 	return Awkvalue{
-		typ: Numericstring,
-		str: s,
-		n:   f,
+		Typ: Numericstring,
+		Str: s,
+		N:   f,
 	}
 }
 
 func Awknumber(n float64) Awkvalue {
 	return Awkvalue{
-		typ: Number,
-		n:   n,
+		Typ: Number,
+		N:   n,
 	}
 }
 
 func Awkarray(m map[string]Awkvalue) Awkvalue {
 	return Awkvalue{
-		typ:   Array,
-		array: m,
+		Typ:   Array,
+		Array: m,
 	}
 }
 
-var Awknil = Awkvalue{}
+var Awknull = Awkvalue{}
 
 func (inter *interpreter) toGoString(v Awkvalue) string {
 	return v.String(inter.getConvfmt())
+}
+
+func nullToArray(v Awkvalue) Awkvalue {
+	if v.Array != nil {
+		v.Typ = Array
+	} else {
+		v = Awkarray(map[string]Awkvalue{})
+	}
+	return v
 }

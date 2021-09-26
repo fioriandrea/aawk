@@ -22,7 +22,6 @@ type Token struct {
 type Lexer struct {
 	line          int
 	currentRune   rune
-	previousRune  rune
 	program       []rune
 	previousToken Token
 }
@@ -86,10 +85,15 @@ func (l *Lexer) NextRegex() Token {
 	fmt.Fprintf(&lexeme, "%s", l.previousToken.Lexeme[1:])
 	line := l.previousToken.Line
 	for !l.atEnd() && l.currentRune != '\n' {
-		if l.currentRune == '/' && l.previousRune != '\\' {
+		if l.currentRune == '\\' {
+			fmt.Fprintf(&lexeme, "%c", '\\')
+			l.advance()
+			l.advanceInside(&lexeme)
+		} else if l.currentRune == '/' {
 			break
+		} else {
+			l.advanceInside(&lexeme)
 		}
-		l.advanceInside(&lexeme)
 	}
 	if l.currentRune != '/' {
 		return l.makeErrorToken("unterminated regex")
@@ -117,7 +121,8 @@ func (l *Lexer) string() Token {
 	l.advance()
 	var c rune
 	for l.currentRune != '\n' && !l.atEnd() {
-		if l.previousRune == '\\' && c != '\\' {
+		if l.currentRune == '\\' {
+			l.advance()
 			switch l.currentRune {
 			case '"':
 				c = '"'
@@ -180,9 +185,6 @@ func (l *Lexer) string() Token {
 				c = l.currentRune
 				l.advance()
 			}
-		} else if l.currentRune == '\\' {
-			l.advance()
-			continue
 		} else if l.currentRune == '"' {
 			break
 		} else {
@@ -240,9 +242,7 @@ func (l *Lexer) number() Token {
 			l.advanceInside(&lexeme)
 		}
 		if !unicode.IsDigit(l.currentRune) {
-			fmt.Printf("%c %c\n", l.previousRune, l.currentRune)
 			l.unread(tounread)
-			fmt.Printf("%c %c\n", l.previousRune, l.currentRune)
 			return l.makeToken(Number, lexeme.String()[:len(lexeme.String())-tounread])
 		}
 		for unicode.IsDigit(l.currentRune) {
@@ -293,7 +293,6 @@ func (l *Lexer) advance() rune {
 		l.program = l.program[:len(l.program)+1]
 		c = l.program[len(l.program)-1]
 	}
-	l.previousRune = l.currentRune
 	l.currentRune = c
 	return l.currentRune
 }
@@ -313,12 +312,9 @@ func (l *Lexer) advanceInside(builder *strings.Builder) {
 }
 
 func (l *Lexer) unread(ntounread int) {
-	// +1 for previousRune, +1 for currentRune
-	for i := 0; i < ntounread+2; i++ {
+	for i := 0; i < ntounread; i++ {
 		l.deadvance()
 	}
-	l.advance()
-	l.advance()
 }
 
 func (l *Lexer) atEnd() bool {

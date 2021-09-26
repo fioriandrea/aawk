@@ -187,7 +187,7 @@ func (inter *interpreter) nextRecordCurrentFile() (string, error) {
 			}
 			break
 		}
-		fname := inter.toGoString(inter.builtins[parser.Argv].array[fmt.Sprintf("%d", inter.argindex)])
+		fname := inter.toGoString(inter.builtins[parser.Argv].Array[fmt.Sprintf("%d", inter.argindex)])
 		if fname == "" {
 			continue
 		} else if lexer.CommandLineAssignRegex.MatchString(fname) {
