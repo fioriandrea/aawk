@@ -240,7 +240,9 @@ func (l *Lexer) number() Token {
 			l.advanceInside(&lexeme)
 		}
 		if !unicode.IsDigit(l.currentRune) {
+			fmt.Printf("%c %c\n", l.previousRune, l.currentRune)
 			l.unread(tounread)
+			fmt.Printf("%c %c\n", l.previousRune, l.currentRune)
 			return l.makeToken(Number, lexeme.String()[:len(lexeme.String())-tounread])
 		}
 		for unicode.IsDigit(l.currentRune) {
@@ -298,6 +300,7 @@ func (l *Lexer) advance() rune {
 
 func (l *Lexer) deadvance() {
 	l.program = l.program[:len(l.program)-1]
+	l.currentRune = l.program[len(l.program)-1]
 }
 
 func (l *Lexer) currentRuneInside(builder *strings.Builder) {
