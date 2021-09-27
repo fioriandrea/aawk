@@ -931,19 +931,20 @@ func (inter *interpreter) setField(i int, v Awkvalue) {
 	} else if i == 0 {
 		str := inter.toString(v)
 		splits, _ := inter.split(str, nil)
-		inter.setSplittedFields(str, splits, v.Typ)
+		vsplits := make([]Awkvalue, 0, len(splits))
+		for _, sp := range splits {
+			vsplits = append(vsplits, Awkstring(sp, v.Typ))
+		}
+		inter.setSplittedFields(v, vsplits)
 		inter.builtins[parser.Nf] = Awknumber(float64(len(inter.fields) - 1))
 	}
 }
 
-// Set fields array with given fields. Type determines the type of $0
-func (inter *interpreter) setSplittedFields(d0 string, splits []string, typ Awkvaluetype) {
+// Set fields array with given fields.
+func (inter *interpreter) setSplittedFields(d0 Awkvalue, splits []Awkvalue) {
 	inter.fields = inter.fields[0:0]
-	inter.fields = append(inter.fields, Awkstring(d0, typ))
-	inter.fields = inter.fields[0:1]
-	for _, split := range splits {
-		inter.fields = append(inter.fields, Awknumericstring(split))
-	}
+	inter.fields = append(inter.fields, d0)
+	inter.fields = append(inter.fields, splits...)
 }
 
 func (inter *interpreter) setBuiltin(i int, v Awkvalue) error {
@@ -961,11 +962,17 @@ func (inter *interpreter) setBuiltin(i int, v Awkvalue) error {
 		if nf < 0 {
 			nf = 0
 		}
-		sp, _ := inter.split(inter.toString(inter.getField(0)), nil)
-		if len(sp) > nf {
-			sp = sp[:nf]
+		splits, _ := inter.split(inter.toString(inter.getField(0)), nil)
+		if len(splits) > nf {
+			splits = splits[:nf]
 		}
-		inter.setSplittedFields(strings.Join(sp, inter.getOfs()), sp, Normalstring)
+		vsplits := make([]Awkvalue, 0, len(splits))
+		for i, sp := range splits {
+			// Keep previous type
+			typ := inter.getField(i + 1).Typ
+			vsplits = append(vsplits, Awkstring(sp, typ))
+		}
+		inter.setSplittedFields(Awknormalstring(strings.Join(splits, inter.getOfs())), vsplits)
 	default:
 		inter.builtins[i] = v
 	}
