@@ -10,7 +10,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"strings"
 
@@ -85,7 +84,8 @@ outer:
 			fname := args[i]
 			file, err := os.Open(fname)
 			if err != nil {
-				log.Fatal(err)
+				fmt.Fprintln(os.Stderr, programError(err.Error()))
+				os.Exit(1)
 			}
 			programfiles = append(programfiles, file)
 		case strings.HasPrefix(args[i], "-v"):
@@ -134,7 +134,7 @@ func main() {
 		if ee, ok := err.(interpreter.ErrorExit); ok {
 			os.Exit(ee.Status)
 		} else if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: %s\n", os.Args[0], err.Error())
+			fmt.Fprintln(os.Stderr, programError(err.Error()))
 		}
 	}
 	if len(errs) > 0 {

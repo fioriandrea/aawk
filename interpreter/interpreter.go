@@ -231,7 +231,7 @@ func (inter *interpreter) executePrint(ps *parser.PrintStat) error {
 
 func (inter *interpreter) executeSimplePrint(w io.Writer, ps *parser.PrintStat) error {
 	if ps.Exprs == nil {
-		fmt.Fprint(w, inter.toGoString(inter.getField(0)))
+		fmt.Fprint(w, inter.toString(inter.getField(0)))
 	} else {
 		buff := make([]string, 0, 10)
 		for _, expr := range ps.Exprs {
@@ -244,9 +244,9 @@ func (inter *interpreter) executeSimplePrint(w io.Writer, ps *parser.PrintStat) 
 			}
 			buff = append(buff, v.String(inter.getOfmt()))
 		}
-		fmt.Fprint(w, strings.Join(buff, inter.toGoString(inter.builtins[parser.Ofs])))
+		fmt.Fprint(w, strings.Join(buff, inter.toString(inter.builtins[parser.Ofs])))
 	}
-	fmt.Fprint(w, inter.toGoString(inter.builtins[parser.Ors]))
+	fmt.Fprint(w, inter.toString(inter.builtins[parser.Ors]))
 	return nil
 }
 
@@ -342,7 +342,7 @@ func (inter *interpreter) executeDelete(ds *parser.DeleteStat) error {
 		if err != nil {
 			return err
 		}
-		delete(v.Array, inter.toGoString(ind))
+		delete(v.Array, inter.toString(ind))
 		return nil
 	case *parser.IdExpr:
 		_, err := inter.getArrayVariable(lhs)
@@ -408,7 +408,11 @@ func (inter *interpreter) evalBinary(b *parser.BinaryExpr) (Awkvalue, error) {
 	if err != nil {
 		return Awknull, err
 	}
-	switch b.Op.Type {
+	return inter.computeBinary(left, b.Op, right)
+}
+
+func (inter *interpreter) computeBinary(left Awkvalue, op lexer.Token, right Awkvalue) (Awkvalue, error) {
+	switch op.Type {
 	case lexer.Plus:
 		return Awknumber(left.Float() + right.Float()), nil
 	case lexer.Minus:
@@ -417,18 +421,18 @@ func (inter *interpreter) evalBinary(b *parser.BinaryExpr) (Awkvalue, error) {
 		return Awknumber(left.Float() * right.Float()), nil
 	case lexer.Slash:
 		if right.Float() == 0 {
-			return Awknull, inter.runtimeError(b.Right.Token(), "attempt to divide by 0")
+			return Awknull, inter.runtimeError(op, "attempt to divide by 0")
 		}
 		return Awknumber(left.Float() / right.Float()), nil
 	case lexer.Percent:
 		if right.Float() == 0 {
-			return Awknull, inter.runtimeError(b.Right.Token(), "attempt to divide by 0")
+			return Awknull, inter.runtimeError(op, "attempt to divide by 0")
 		}
 		return Awknumber(math.Mod(left.Float(), right.Float())), nil
 	case lexer.Caret:
 		return Awknumber(math.Pow(left.Float(), right.Float())), nil
 	case lexer.Concat:
-		return Awknormalstring(inter.toGoString(left) + inter.toGoString(right)), nil
+		return Awknormalstring(inter.toString(left) + inter.toString(right)), nil
 	case lexer.Equal:
 		c := inter.compareValues(left, right)
 		if c == 0 {
@@ -581,7 +585,7 @@ func (inter *interpreter) evalIn(ine *parser.InExpr) (Awkvalue, error) {
 	if err != nil {
 		return Awknull, err
 	}
-	str := inter.toGoString(elem)
+	str := inter.toString(elem)
 	_, ok := v.Array[str]
 	if ok {
 		return Awknumber(1), nil
@@ -625,7 +629,7 @@ func (inter *interpreter) evalMatchExpr(me *parser.MatchExpr) (Awkvalue, error) 
 	if err != nil {
 		return Awknull, err
 	}
-	res := rightre.MatchString(inter.toGoString(left))
+	res := rightre.MatchString(inter.toString(left))
 	if me.Op.Type == lexer.NotTilde {
 		res = !res
 	}
@@ -645,7 +649,7 @@ func (inter *interpreter) evalRegex(e parser.Expr) (*regexp.Regexp, error) {
 		if err != nil {
 			return nil, err
 		}
-		return inter.evalRegexFromString(e.Token(), inter.toGoString(rev))
+		return inter.evalRegexFromString(e.Token(), inter.toString(rev))
 	}
 }
 
@@ -707,8 +711,8 @@ func (inter *interpreter) compareValues(left, right Awkvalue) float64 {
 	numeric and the other has a string value that is a numeric string, or
 	if one is numeric and the other has the uninitialized value. */
 	if nosl || nosr || (left.Typ == Null && right.Typ == Null) || (nusl && nusr) {
-		strl := inter.toGoString(left)
-		strr := inter.toGoString(right)
+		strl := inter.toString(left)
+		strr := inter.toString(right)
 		if strl == strr {
 			return 0
 		} else if strl < strr {
@@ -746,8 +750,43 @@ func (inter *interpreter) evalAssign(a *parser.AssignExpr) (Awkvalue, error) {
 	if err != nil {
 		return Awknull, err
 	}
-	res, err := inter.evalAssignToLhs(a.Left, right)
+	res, err := inter.evalSpecialAssignToLhs(a.Left, a.Equal, right)
 	return res, err
+}
+
+func (inter *interpreter) evalAssignToLhs(lhs parser.LhsExpr, val Awkvalue) (Awkvalue, error) {
+	return inter.evalSpecialAssignToLhs(lhs, lexer.Token{Type: lexer.Assign}, val)
+}
+
+func (inter *interpreter) evalSpecialAssignToLhs(lhs parser.LhsExpr, op lexer.Token, val Awkvalue) (Awkvalue, error) {
+	vlhs, index, err := inter.evalLhs(lhs)
+	if err != nil {
+		return Awknull, err
+	}
+
+	switch op.Type {
+	case lexer.ExpAssign:
+		op.Type = lexer.Caret
+	case lexer.ModAssign:
+		op.Type = lexer.Percent
+	case lexer.MulAssign:
+		op.Type = lexer.Star
+	case lexer.DivAssign:
+		op.Type = lexer.Slash
+	case lexer.PlusAssign:
+		op.Type = lexer.Plus
+	case lexer.MinusAssign:
+		op.Type = lexer.Minus
+	}
+	if op.Type != lexer.Assign {
+		vbin, err := inter.computeBinary(vlhs, op, val)
+		if err != nil {
+			return Awknull, err
+		}
+		val = vbin
+	}
+
+	return inter.evalAssignToLhsIndex(lhs, index, val)
 }
 
 func (inter *interpreter) evalPreIncrement(pr *parser.PreIncrementExpr) (Awkvalue, error) {
@@ -799,14 +838,6 @@ func (inter *interpreter) evalIncrement(inc *parser.IncrementExpr) (Awkvalue, Aw
 	return val, ival, nil
 }
 
-func (inter *interpreter) evalAssignToLhs(lhs parser.LhsExpr, val Awkvalue) (Awkvalue, error) {
-	_, index, err := inter.evalLhs(lhs)
-	if err != nil {
-		return Awknull, err
-	}
-	return inter.evalAssignToLhsIndex(lhs, index, val)
-}
-
 func (inter *interpreter) evalAssignToLhsIndex(lhs parser.LhsExpr, index Awkvalue, val Awkvalue) (Awkvalue, error) {
 	switch left := lhs.(type) {
 	case *parser.IdExpr:
@@ -821,7 +852,7 @@ func (inter *interpreter) evalAssignToLhsIndex(lhs parser.LhsExpr, index Awkvalu
 		if err != nil {
 			return Awknull, err
 		}
-		arrval.Array[inter.toGoString(index)] = val
+		arrval.Array[inter.toString(index)] = val
 	}
 	return val, nil
 }
@@ -870,44 +901,75 @@ func (inter *interpreter) evalIndex(ind []parser.Expr) (Awkvalue, error) {
 		if err != nil {
 			return Awknull, err
 		}
-		indices = append(indices, inter.toGoString(res))
+		indices = append(indices, inter.toString(res))
 	}
-	return Awknormalstring(strings.Join(indices, inter.toGoString(inter.builtins[parser.Subsep]))), nil
+	return Awknormalstring(strings.Join(indices, inter.toString(inter.builtins[parser.Subsep]))), nil
 }
 
 func (inter *interpreter) getField(i int) Awkvalue {
 	if i < 0 || i >= len(inter.fields) {
-		return Awknull
+		return Awknormalstring("")
 	}
 	return inter.fields[i]
 }
 
+// Sets field at position i and recomputes NF if necessary
 func (inter *interpreter) setField(i int, v Awkvalue) {
+	// https://stackoverflow.com/questions/51632945/in-awk-why-does-a-nonexistent-field-like-nf1-not-equal-zero/51638902
 	if i >= 1 && i < len(inter.fields) {
-		inter.fields[i] = Awknumericstring(inter.toGoString(v))
-		ofs := inter.toGoString(inter.builtins[parser.Ofs])
-		sep := ""
-		var res strings.Builder
+		inter.fields[i] = Awkstring(inter.toString(v), v.Typ)
+		tojoin := make([]string, 0, len(inter.fields[1:]))
 		for _, field := range inter.fields[1:] {
-			fmt.Fprintf(&res, "%s%s", sep, inter.toGoString(field))
-			sep = ofs
+			tojoin = append(tojoin, inter.toString(field))
 		}
-		inter.fields[0] = Awknumericstring(res.String())
+		inter.fields[0] = Awknormalstring(strings.Join(tojoin, inter.getOfs()))
 	} else if i >= len(inter.fields) {
 		for i >= len(inter.fields) {
 			inter.fields = append(inter.fields, Awknormalstring(""))
 		}
 		inter.setField(i, v)
 	} else if i == 0 {
-		str := inter.toGoString(v)
-		inter.fields[0] = Awknumericstring(str)
-		inter.fields = inter.fields[0:1]
+		str := inter.toString(v)
 		splits, _ := inter.split(str, nil)
-		for _, split := range splits {
-			inter.fields = append(inter.fields, Awknumericstring(split))
-		}
+		inter.setSplittedFields(str, splits, v.Typ)
 		inter.builtins[parser.Nf] = Awknumber(float64(len(inter.fields) - 1))
 	}
+}
+
+// Set fields array with given fields. Type determines the type of $0
+func (inter *interpreter) setSplittedFields(d0 string, splits []string, typ Awkvaluetype) {
+	inter.fields = inter.fields[0:0]
+	inter.fields = append(inter.fields, Awkstring(d0, typ))
+	inter.fields = inter.fields[0:1]
+	for _, split := range splits {
+		inter.fields = append(inter.fields, Awknumericstring(split))
+	}
+}
+
+func (inter *interpreter) setBuiltin(i int, v Awkvalue) error {
+	switch i {
+	case parser.Fs:
+		re, err := parser.CompileFs(inter.toString(v))
+		if err != nil {
+			return err
+		}
+		inter.fsregex = re
+		inter.builtins[parser.Fs] = v
+	case parser.Nf:
+		inter.builtins[parser.Nf] = v
+		nf := int(v.Float())
+		if nf < 0 {
+			nf = 0
+		}
+		sp, _ := inter.split(inter.toString(inter.getField(0)), nil)
+		if len(sp) > nf {
+			sp = sp[:nf]
+		}
+		inter.setSplittedFields(strings.Join(sp, inter.getOfs()), sp, Normalstring)
+	default:
+		inter.builtins[i] = v
+	}
+	return nil
 }
 
 func (inter *interpreter) getVariable(id *parser.IdExpr) Awkvalue {
@@ -958,35 +1020,8 @@ func (inter *interpreter) setVariable(id *parser.IdExpr, v Awkvalue) error {
 	return inter.setVariableArrayAllowed(id, v)
 }
 
-func (inter *interpreter) setBuiltin(i int, v Awkvalue) error {
-	switch i {
-	case parser.Fs:
-		re, err := parser.CompileFs(inter.toGoString(v))
-		if err != nil {
-			return err
-		}
-		inter.fsregex = re
-	case parser.Nf:
-		n := int(v.Float())
-		if n < 0 {
-			return fmt.Errorf("cannot assign negative value to NF")
-		}
-		sp, err := inter.split(inter.toGoString(inter.getField(0)), nil)
-		if err != nil {
-			return err
-		}
-		if len(sp) > n {
-			sp = sp[:n]
-		}
-		// TODO: fix this (it's too inefficient)
-		inter.setField(0, Awknormalstring(strings.Join(sp, inter.toGoString(inter.builtins[parser.Ofs]))))
-	}
-	inter.builtins[i] = v
-	return nil
-}
-
 func (inter *interpreter) getFs() string {
-	return inter.toGoString(inter.builtins[parser.Fs])
+	return inter.toString(inter.builtins[parser.Fs])
 }
 
 func (inter *interpreter) getOfmt() string {
@@ -998,7 +1033,11 @@ func (inter *interpreter) getConvfmt() string {
 }
 
 func (inter *interpreter) getRs() string {
-	return inter.toGoString(inter.builtins[parser.Rs])
+	return inter.toString(inter.builtins[parser.Rs])
+}
+
+func (inter *interpreter) getOfs() string {
+	return inter.toString(inter.builtins[parser.Ofs])
 }
 
 func (inter *interpreter) runtimeError(tok lexer.Token, msg string) error {
@@ -1066,7 +1105,7 @@ func (inter *interpreter) runNormals() error {
 }
 
 func (inter *interpreter) processRecord(record string) error {
-	inter.setField(0, Awknormalstring(record))
+	inter.setField(0, Awknumericstring(record))
 	for i, normal := range inter.items.Normals {
 		var toexecute bool
 		switch pat := normal.Pattern.(type) {
@@ -1078,23 +1117,22 @@ func (inter *interpreter) processRecord(record string) error {
 			toexecute = res.Bool()
 		case *parser.RangePattern:
 			if inter.rangematched[i] {
-				res, err := inter.eval(pat.Expr1)
-				if err != nil {
-					return err
-				}
-				if res.Bool() {
-					delete(inter.rangematched, i)
-				}
 				toexecute = true
-			} else {
-				res, err := inter.eval(pat.Expr0)
-				if err != nil {
-					return err
-				}
-				if res.Bool() {
-					toexecute = true
-					inter.rangematched[i] = true
-				}
+			}
+			res0, err := inter.eval(pat.Expr1)
+			if err != nil {
+				return err
+			}
+			if res0.Bool() {
+				inter.rangematched[i] = true
+				toexecute = true
+			}
+			res1, err := inter.eval(pat.Expr1)
+			if err != nil {
+				return err
+			}
+			if res1.Bool() {
+				delete(inter.rangematched, i)
 			}
 		}
 		if toexecute {

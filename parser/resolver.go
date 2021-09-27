@@ -111,6 +111,9 @@ func (res *resolver) functionDef(fd *FunctionDef) []error {
 		if _, ok := Builtinvars[arg.Lexeme]; ok {
 			errors = append(errors, res.resolveError(arg, "cannot call a function argument the same as a built-in variable"))
 			continue
+		} else if _, ok := res.localindices[arg.Lexeme]; ok {
+			errors = append(errors, res.resolveError(arg, "cannot have duplicate parameters"))
+			continue
 		}
 		res.localindices[arg.Lexeme] = i
 	}

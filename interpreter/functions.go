@@ -213,13 +213,13 @@ func (inter *interpreter) evalBuiltinCall(called lexer.Token, args []parser.Expr
 		if err != nil {
 			return Awknull, err
 		}
-		str := inter.toGoString(v0)
-		substr := inter.toGoString(v1)
+		str := inter.toString(v0)
+		substr := inter.toString(v1)
 		return Awknumber(float64(indexRuneSlice([]rune(str), []rune(substr)) + 1)), nil
 	case lexer.Length:
 		var str string
 		if len(args) == 0 {
-			str = inter.toGoString(inter.getField(0))
+			str = inter.toString(inter.getField(0))
 		} else {
 			v, err := inter.evalArrayAllowed(args[0])
 			if err != nil {
@@ -228,7 +228,7 @@ func (inter *interpreter) evalBuiltinCall(called lexer.Token, args []parser.Expr
 			if v.Typ == Array {
 				return Awknumber(float64(len(v.Array))), nil
 			}
-			str = inter.toGoString(v)
+			str = inter.toString(v)
 		}
 		return Awknumber(float64(len([]rune(str)))), nil
 	case lexer.Match:
@@ -239,7 +239,7 @@ func (inter *interpreter) evalBuiltinCall(called lexer.Token, args []parser.Expr
 		if err != nil {
 			return Awknull, err
 		}
-		s := inter.toGoString(vs)
+		s := inter.toString(vs)
 		re, err := inter.evalRegex(args[1])
 		if err != nil {
 			return Awknull, err
@@ -266,7 +266,7 @@ func (inter *interpreter) evalBuiltinCall(called lexer.Token, args []parser.Expr
 			return Awknull, err
 		}
 
-		s := inter.toGoString(vs)
+		s := inter.toString(vs)
 
 		id, isid := args[1].(*parser.IdExpr)
 		if !isid {
@@ -313,7 +313,7 @@ func (inter *interpreter) evalBuiltinCall(called lexer.Token, args []parser.Expr
 		if err != nil {
 			return Awknull, err
 		}
-		s := []rune(inter.toGoString(vs))
+		s := []rune(inter.toString(vs))
 		vm, err := inter.eval(args[1])
 		if err != nil {
 			return Awknull, err
@@ -348,7 +348,7 @@ func (inter *interpreter) evalBuiltinCall(called lexer.Token, args []parser.Expr
 		if err != nil {
 			return Awknull, err
 		}
-		return Awknormalstring(strings.ToLower(inter.toGoString(v))), nil
+		return Awknormalstring(strings.ToLower(inter.toString(v))), nil
 	case lexer.Toupper:
 		if len(args) != 1 {
 			return Awknull, inter.runtimeError(called, "incorrect number of arguments")
@@ -357,7 +357,7 @@ func (inter *interpreter) evalBuiltinCall(called lexer.Token, args []parser.Expr
 		if err != nil {
 			return Awknull, err
 		}
-		return Awknormalstring(strings.ToUpper(inter.toGoString(v))), nil
+		return Awknormalstring(strings.ToUpper(inter.toString(v))), nil
 	// IO Functions
 	case lexer.Close:
 		if len(args) != 1 {
@@ -367,7 +367,7 @@ func (inter *interpreter) evalBuiltinCall(called lexer.Token, args []parser.Expr
 		if err != nil {
 			return Awknull, err
 		}
-		str := inter.toGoString(file)
+		str := inter.toString(file)
 		opr := inter.outprograms.close(str)
 		oprn := 0
 		if opr != nil {
@@ -383,8 +383,13 @@ func (inter *interpreter) evalBuiltinCall(called lexer.Token, args []parser.Expr
 		if ipr != nil {
 			iprn = 1
 		}
+		inf := inter.infiles.close(str)
+		infn := 0
+		if inf != nil {
+			infn = 1
+		}
 
-		return Awknumber(float64(oprn | ofn | iprn)), nil
+		return Awknumber(float64(oprn | ofn | iprn | infn)), nil
 	case lexer.System:
 		if len(args) != 1 {
 			return Awknull, inter.runtimeError(called, "incorrect number of arguments")
@@ -393,7 +398,7 @@ func (inter *interpreter) evalBuiltinCall(called lexer.Token, args []parser.Expr
 		if err != nil {
 			return Awknull, err
 		}
-		cmdstr := inter.toGoString(v)
+		cmdstr := inter.toString(v)
 
 		return Awknumber(float64(system(cmdstr, inter.stdin, inter.stdout, inter.stderr))), nil
 	}
@@ -431,10 +436,10 @@ func (inter *interpreter) computeFmtConversions(printtok lexer.Token, s string) 
 	}
 
 	tostring := func(v Awkvalue) interface{} {
-		return inter.toGoString(v)
+		return inter.toString(v)
 	}
 	tochar := func(v Awkvalue) interface{} {
-		s := inter.toGoString(v)
+		s := inter.toString(v)
 		if len(s) == 0 {
 			return '\000'
 		}
@@ -494,7 +499,7 @@ func (inter *interpreter) computeFmtConversions(printtok lexer.Token, s string) 
 		case 's':
 			convs = append(convs, tostring)
 		default:
-			return nil, inter.runtimeError(printtok, fmt.Sprintf("unknown format %c in string '%s'", s[i], s))
+			return nil, inter.runtimeError(printtok, fmt.Sprintf("unknown format %c in string %q", s[i], s))
 		}
 	}
 	if len(inter.fprintfcache) < 100 {
@@ -508,7 +513,7 @@ func (inter *interpreter) fprintf(w io.Writer, print lexer.Token, exprs []parser
 	if err != nil {
 		return err
 	}
-	formatstr := inter.toGoString(format)
+	formatstr := inter.toString(format)
 	convs, err := inter.computeFmtConversions(print, formatstr)
 	if err != nil {
 		return err
@@ -538,11 +543,18 @@ func (inter *interpreter) fprintf(w io.Writer, print lexer.Token, exprs []parser
 func (inter *interpreter) split(s string, e parser.Expr) ([]string, error) {
 	fs := inter.getFs()
 	if e != nil {
+		if rexpr, ok := e.(*parser.RegexExpr); ok {
+			re, err := inter.evalRegex(rexpr)
+			if err != nil {
+				return nil, err
+			}
+			return re.Split(s, -1), nil
+		}
 		vfs, err := inter.eval(e)
 		if err != nil {
 			return nil, err
 		}
-		fs = inter.toGoString(vfs)
+		fs = inter.toString(vfs)
 	}
 	if len(s) == 0 {
 		return nil, nil
@@ -578,11 +590,11 @@ func generalsub(inter *interpreter, called lexer.Token, args []parser.Expr, glob
 	if err != nil {
 		return Awknull, err
 	}
-	repl := inter.toGoString(vrepl)
+	repl := inter.toString(vrepl)
 	var str string
 	var assign func(string)
 	if args[2] == nil {
-		str = inter.toGoString(inter.getField(0))
+		str = inter.toString(inter.getField(0))
 		assign = func(s string) {
 			inter.setField(0, Awknormalstring(s))
 		}
@@ -592,7 +604,7 @@ func generalsub(inter *interpreter, called lexer.Token, args []parser.Expr, glob
 			if err != nil {
 				return Awknull, err
 			}
-			str = inter.toGoString(v)
+			str = inter.toString(v)
 			assign = func(s string) {
 				inter.evalAssignToLhs(lhs, Awknormalstring(s))
 			}
@@ -601,9 +613,7 @@ func generalsub(inter *interpreter, called lexer.Token, args []parser.Expr, glob
 		}
 	}
 	res, count := sub(re, repl, str, global)
-	if count > 0 { // to avoid recomputation of $0 in case a field is lhs
-		assign(res)
-	}
+	assign(res)
 	return Awknumber(float64(count)), nil
 }
 

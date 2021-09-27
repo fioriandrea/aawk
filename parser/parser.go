@@ -20,7 +20,7 @@ type parser struct {
 	lexer      lexer.Lexer
 	current    lexer.Token
 	previous   lexer.Token
-	indollar   bool
+	inexp      bool
 	inprint    bool
 	inpattern  bool
 	ingetline  bool
@@ -737,28 +737,6 @@ func (ps *parser) assignExpr() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		op := equal
-		switch op.Type {
-		case lexer.ExpAssign:
-			op.Type = lexer.Caret
-		case lexer.ModAssign:
-			op.Type = lexer.Percent
-		case lexer.MulAssign:
-			op.Type = lexer.Star
-		case lexer.DivAssign:
-			op.Type = lexer.Slash
-		case lexer.PlusAssign:
-			op.Type = lexer.Plus
-		case lexer.MinusAssign:
-			op.Type = lexer.Minus
-		}
-		if op.Type != lexer.Assign {
-			right = &BinaryExpr{
-				Left:  left,
-				Op:    op,
-				Right: right,
-			}
-		}
 		return &AssignExpr{
 			Left:  lhs,
 			Equal: equal,
@@ -971,7 +949,7 @@ func (ps *parser) mulExpr() (Expr, error) {
 func (ps *parser) unaryExpr() (Expr, error) {
 	if ps.eat(lexer.Plus, lexer.Minus, lexer.Not) {
 		op := ps.previous
-		right, err := ps.expExpr()
+		right, err := ps.unaryExpr()
 		if err != nil {
 			return nil, err
 		}
@@ -993,6 +971,8 @@ func (ps *parser) expExpr() (Expr, error) {
 		return nil, err
 	}
 	if ps.eat(lexer.Caret) {
+		ps.inexp = true
+		defer func() { ps.inexp = false }()
 		op := ps.previous
 		right, err := ps.expr()
 		if err != nil {
@@ -1002,6 +982,9 @@ func (ps *parser) expExpr() (Expr, error) {
 			Left:  left,
 			Op:    op,
 			Right: right,
+		}
+		if !ps.isInPrint() && ps.check(lexer.Pipe) {
+			return ps.pipeGetlineExpr(left)
 		}
 	}
 	return left, nil
@@ -1073,19 +1056,14 @@ func (ps *parser) postIncrementExpr() (Expr, error) {
 
 func (ps *parser) dollarExpr() (Expr, error) {
 	if ps.eat(lexer.Dollar) {
-		ps.indollar = true
-		defer func() { ps.indollar = false }()
 		dollar := ps.previous
-		expr, err := ps.termExpr()
+		expr, err := ps.unaryExpr()
 		if err != nil {
 			return nil, err
 		}
 		res := &DollarExpr{
 			Dollar: dollar,
 			Field:  expr,
-		}
-		if !ps.isInPrint() && ps.check(lexer.Pipe) {
-			return ps.pipeGetlineExpr(res)
 		}
 		return res, nil
 	}
@@ -1149,7 +1127,7 @@ func (ps *parser) termExpr() (Expr, error) {
 		defer ps.advance()
 		sub, err = nil, ps.parseErrorAtCurrent("unexpected token")
 	}
-	if err == nil && !ps.isInPrint() && !ps.indollar && ps.check(lexer.Pipe) {
+	if err == nil && !ps.isInPrint() && !ps.inexp && ps.check(lexer.Pipe) {
 		sub, err = ps.pipeGetlineExpr(sub)
 	}
 	return sub, err

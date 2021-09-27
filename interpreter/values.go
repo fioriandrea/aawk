@@ -88,6 +88,14 @@ func Awknumericstring(s string) Awkvalue {
 	}
 }
 
+func Awkstring(s string, t Awkvaluetype) Awkvalue {
+	if t == Normalstring {
+		return Awknormalstring(s)
+	} else {
+		return Awknumericstring(s)
+	}
+}
+
 func Awknumber(n float64) Awkvalue {
 	return Awkvalue{
 		Typ: Number,
@@ -104,7 +112,7 @@ func Awkarray(m map[string]Awkvalue) Awkvalue {
 
 var Awknull = Awkvalue{}
 
-func (inter *interpreter) toGoString(v Awkvalue) string {
+func (inter *interpreter) toString(v Awkvalue) string {
 	return v.String(inter.getConvfmt())
 }
 
