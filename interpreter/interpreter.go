@@ -1167,7 +1167,7 @@ func (inter *interpreter) initialize(params RunParams) {
 
 	// Stacks
 
-	inter.builtins = make([]Awkvalue, len(parser.Builtinvars))
+	inter.builtins = make([]Awkvalue, len(lexer.Builtinvars))
 	inter.initializeBuiltinVariables(params)
 
 	inter.globals = make([]Awkvalue, len(params.ResolvedItems.Globalindices))
@@ -1236,7 +1236,7 @@ func (inter *interpreter) initializeBuiltinVariables(params RunParams) {
 
 func (inter *interpreter) assignCommandLineString(assign string) {
 	splits := strings.Split(assign, "=")
-	if i, ok := parser.Builtinvars[splits[0]]; ok {
+	if i, ok := lexer.Builtinvars[splits[0]]; ok {
 		inter.setBuiltin(i, Awknumericstring(splits[1]))
 	} else if i, ok := inter.items.Globalindices[splits[0]]; ok {
 		inter.globals[i] = Awknumericstring(splits[1])

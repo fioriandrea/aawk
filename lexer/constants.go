@@ -112,7 +112,7 @@ const (
 	TokenCount
 )
 
-var keywords = map[string]TokenType{
+var Keywords = map[string]TokenType{
 	"BEGIN":    Begin,
 	"break":    Break,
 	"continue": Continue,
@@ -131,7 +131,9 @@ var keywords = map[string]TokenType{
 	"print":    Print,
 	"return":   Return,
 	"while":    While,
+}
 
+var Builtinfuncs = map[string]TokenType{
 	"atan2":   Atan2,
 	"close":   Close,
 	"cos":     Cos,
@@ -153,6 +155,44 @@ var keywords = map[string]TokenType{
 	"system":  System,
 	"tolower": Tolower,
 	"toupper": Toupper,
+}
+
+const (
+	Argc = iota
+	Argv
+	Convfmt
+	Environ
+	Filename
+	Fnr
+	Fs
+	Nf
+	Nr
+	Ofmt
+	Ofs
+	Ors
+	Rlength
+	Rs
+	Rstart
+	Subsep
+)
+
+var Builtinvars = map[string]int{
+	"ARGC":     Argc,
+	"ARGV":     Argv,
+	"CONVFMT":  Convfmt,
+	"ENVIRON":  Environ,
+	"FILENAME": Filename,
+	"FNR":      Fnr,
+	"FS":       Fs,
+	"NF":       Nf,
+	"NR":       Nr,
+	"OFMT":     Ofmt,
+	"OFS":      Ofs,
+	"ORS":      Ors,
+	"RLENGTH":  Rlength,
+	"RS":       Rs,
+	"RSTART":   Rstart,
+	"SUBSEP":   Subsep,
 }
 
 type trienode struct {

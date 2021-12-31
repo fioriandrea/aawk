@@ -209,7 +209,9 @@ func (l *Lexer) identifier() Token {
 		l.advanceCurrentInside(&lexeme)
 	}
 	rettype := Identifier
-	if t, ok := keywords[lexeme.String()]; ok {
+	if t, ok := Keywords[lexeme.String()]; ok {
+		rettype = t
+	} else if t, ok := Builtinfuncs[lexeme.String()]; ok {
 		rettype = t
 	}
 

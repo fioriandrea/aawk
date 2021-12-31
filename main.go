@@ -10,8 +10,11 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/fioriandrea/aawk/interpreter"
 )
@@ -125,15 +128,19 @@ outer:
 		Stdout:         os.Stdout,
 		Stderr:         os.Stderr,
 		Natives: map[string]interpreter.NativeFunction{
-			"mkarray": func(vals ...interpreter.Awkvalue) (interpreter.Awkvalue, error) {
-				res := interpreter.Awkarray(map[string]interpreter.Awkvalue{})
-				for i, v := range vals {
-					if v.Typ == interpreter.Array {
-						return interpreter.Awkvalue{}, fmt.Errorf("cannot use array as array element")
-					}
-					res.Array[fmt.Sprintf("%d", i+1)] = v
+			"curl": func(args ...interpreter.NativeVal) (interpreter.NativeVal, error) {
+				url := args[0].String()
+				http.DefaultClient.Timeout = time.Second * 10
+				resp, err := http.Get(url)
+				if err != nil {
+					return nil, nil
 				}
-				return res, nil
+				defer resp.Body.Close()
+				body, err := ioutil.ReadAll(resp.Body)
+				if err != nil {
+					return nil, nil
+				}
+				return interpreter.NativeStr(body), nil
 			},
 		},
 	}

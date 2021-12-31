@@ -33,25 +33,6 @@ const (
 	Subsep
 )
 
-var Builtinvars = map[string]int{
-	"ARGC":     Argc,
-	"ARGV":     Argv,
-	"CONVFMT":  Convfmt,
-	"ENVIRON":  Environ,
-	"FILENAME": Filename,
-	"FNR":      Fnr,
-	"FS":       Fs,
-	"NF":       Nf,
-	"NR":       Nr,
-	"OFMT":     Ofmt,
-	"OFS":      Ofs,
-	"ORS":      Ors,
-	"RLENGTH":  Rlength,
-	"RS":       Rs,
-	"RSTART":   Rstart,
-	"SUBSEP":   Subsep,
-}
-
 type resolver struct {
 	indices         map[string]int
 	localindices    map[string]int
@@ -70,8 +51,18 @@ func resolve(items []Item, nativeFunctions map[string]bool) (map[string]int, map
 
 	resolver := newResolver()
 
-	for builtin := range nativeFunctions {
-		resolver.functionindices[builtin] = len(resolver.functionindices)
+	for native := range nativeFunctions {
+		if _, ok := lexer.Builtinvars[native]; ok {
+			errors = append(errors, fmt.Errorf("cannot call native (%s) the same as a builtin variable", native))
+			continue
+		} else if _, ok := lexer.Builtinfuncs[native]; ok {
+			errors = append(errors, fmt.Errorf("cannot call native (%s) the same as a builtin function", native))
+			continue
+		} else if _, ok := lexer.Keywords[native]; ok {
+			errors = append(errors, fmt.Errorf("cannot call native (%s) the same as a keyword", native))
+			continue
+		}
+		resolver.functionindices[native] = len(resolver.functionindices)
 	}
 
 	for _, item := range items {
@@ -79,6 +70,15 @@ func resolve(items []Item, nativeFunctions map[string]bool) (map[string]int, map
 		case *FunctionDef:
 			if _, ok := resolver.functionindices[it.Name.Lexeme]; ok {
 				errors = append(errors, resolver.resolveError(it.Name, "function already defined"))
+				continue
+			} else if _, ok := lexer.Builtinvars[it.Name.Lexeme]; ok {
+				errors = append(errors, resolver.resolveError(it.Name, "cannot call a function the same as a built-in variable"))
+				continue
+			} else if _, ok := lexer.Builtinfuncs[it.Name.Lexeme]; ok {
+				errors = append(errors, resolver.resolveError(it.Name, "cannot call a function the same as a built-in function"))
+				continue
+			} else if _, ok := lexer.Keywords[it.Name.Lexeme]; ok {
+				errors = append(errors, resolver.resolveError(it.Name, "cannot call a function the same as a keyword"))
 				continue
 			}
 			resolver.functionindices[it.Name.Lexeme] = len(resolver.functionindices)
@@ -107,7 +107,7 @@ func (res *resolver) functionDef(fd *FunctionDef) []error {
 	res.localindices = map[string]int{}
 	defer func() { res.localindices = nil }()
 	for i, arg := range fd.Args {
-		if _, ok := Builtinvars[arg.Lexeme]; ok {
+		if _, ok := lexer.Builtinvars[arg.Lexeme]; ok {
 			errors = append(errors, res.resolveError(arg, "cannot call a function argument the same as a built-in variable"))
 			continue
 		} else if _, ok := res.localindices[arg.Lexeme]; ok {
@@ -391,7 +391,7 @@ func (res *resolver) idExpr(e *IdExpr) error {
 		return res.resolveError(e.Token(), "cannot use function in variable context")
 	}
 
-	if i, ok := Builtinvars[e.Id.Lexeme]; ok {
+	if i, ok := lexer.Builtinvars[e.Id.Lexeme]; ok {
 		e.LocalIndex = -1
 		e.Index = -1
 		e.FunctionIndex = -1

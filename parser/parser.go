@@ -55,7 +55,7 @@ func ParseCl(cl CommandLine) (CompiledProgram, []error) {
 			errors = append(errors, fmt.Errorf("invalid syntax used for preassignment '%s'", preassign))
 		}
 		splits := strings.Split(preassign, "=")
-		if i, ok := Builtinvars[splits[0]]; ok {
+		if i, ok := lexer.Builtinvars[splits[0]]; ok {
 			// Check FS from -v
 			if i == Fs {
 				var err error
