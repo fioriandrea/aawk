@@ -27,7 +27,7 @@ type CommandLine struct {
 	Program        io.Reader
 	Programname    string
 	Arguments      []string
-	Natives        map[string]interface{}
+	Natives        map[string]NativeFunction
 	Stdin          io.Reader
 	Stdout         io.Writer
 	Stderr         io.Writer
@@ -47,11 +47,18 @@ func (ee ErrorExit) Error() string {
 }
 
 func ExecuteCL(cl CommandLine) []error {
+	nativeNames := func(natives map[string]NativeFunction) map[string]bool {
+		names := make(map[string]bool)
+		for name := range natives {
+			names[name] = true
+		}
+		return names
+	}
 	compiled, errs := parser.ParseCl(parser.CommandLine{
 		Program:        cl.Program,
 		Fs:             cl.Fs,
 		Preassignments: cl.Preassignments,
-		Natives:        cl.Natives,
+		Natives:        nativeNames(cl.Natives),
 	})
 	if len(errs) > 0 {
 		return errs
@@ -68,17 +75,6 @@ func ExecuteCL(cl CommandLine) []error {
 }
 
 func Exec(params RunParams) []error {
-	// Check natives
-	nativeserrors := make([]error, 0)
-	for name, native := range params.Natives {
-		if err := validateNative(name, native); err != nil {
-			nativeserrors = append(nativeserrors, err)
-		}
-	}
-	if len(nativeserrors) > 0 {
-		return nativeserrors
-	}
-
 	errs := make([]error, 0)
 	var inter interpreter
 	inter.initialize(params)

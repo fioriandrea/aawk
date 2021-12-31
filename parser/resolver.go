@@ -65,8 +65,7 @@ func newResolver() *resolver {
 	}
 }
 
-// Take functions defined somewhere else (that is, not in the source code)
-func resolve(items []Item, nativeFunctions map[string]interface{}) (map[string]int, map[string]int, []error) {
+func resolve(items []Item, nativeFunctions map[string]bool) (map[string]int, map[string]int, []error) {
 	var errors []error
 
 	resolver := newResolver()

@@ -430,7 +430,7 @@ type CommandLine struct {
 	Program        io.Reader
 	Fs             string
 	Preassignments []string
-	Natives        map[string]interface{}
+	Natives        map[string]bool
 }
 
 type CompiledProgram struct {

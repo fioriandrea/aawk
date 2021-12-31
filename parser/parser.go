@@ -76,7 +76,7 @@ func ParseCl(cl CommandLine) (CompiledProgram, []error) {
 	}, errors
 }
 
-func parseProgram(prog io.Reader, nativeFunctions map[string]interface{}) (ResolvedItems, []error) {
+func parseProgram(prog io.Reader, nativeFunctions map[string]bool) (ResolvedItems, []error) {
 	b, err := ioutil.ReadAll(prog)
 	if err != nil {
 		return ResolvedItems{}, []error{err}

@@ -124,6 +124,18 @@ outer:
 		Stdin:          os.Stdin,
 		Stdout:         os.Stdout,
 		Stderr:         os.Stderr,
+		Natives: map[string]interpreter.NativeFunction{
+			"mkarray": func(vals ...interpreter.Awkvalue) (interpreter.Awkvalue, error) {
+				res := interpreter.Awkarray(map[string]interpreter.Awkvalue{})
+				for i, v := range vals {
+					if v.Typ == interpreter.Array {
+						return interpreter.Awkvalue{}, fmt.Errorf("cannot use array as array element")
+					}
+					res.Array[fmt.Sprintf("%d", i+1)] = v
+				}
+				return res, nil
+			},
+		},
 	}
 }
 
